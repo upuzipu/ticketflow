@@ -1,0 +1,12 @@
+# secrets
+.env
+
+# IDE
+.idea/
+
+# build artifacts
+*.exe
+
+# runtime output (появятся на поздних этапах)
+outbox-mails/
+storage/
