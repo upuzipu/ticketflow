@@ -9,6 +9,7 @@ var (
 	ErrConflict     = errors.New("domain: state conflict")
 	ErrUnauthorized = errors.New("domain: unauthorized")
 	ErrForbidden    = errors.New("domain: forbidden")
+	ErrWrongCred    = errors.New("domain: wrong credentials")
 )
 
 // Money errors
