@@ -14,6 +14,7 @@ import (
 	"github.com/upuzipu/ticketflow/internal/repository/postgres"
 	"github.com/upuzipu/ticketflow/internal/service"
 	apphttp "github.com/upuzipu/ticketflow/internal/transport/http"
+	"github.com/upuzipu/ticketflow/internal/transport/http/handler"
 )
 
 func main() {
@@ -45,9 +46,9 @@ func run() error {
 	issuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
 	authService := service.NewAuthService(usersRepo, hasher, issuer)
 
-	_ = authService // handler wiring arrives with the next step
+	authHandler := handler.NewAuthHandler(authService)
 
-	server := apphttp.NewServer(cfg.HTTPAddr, log)
+	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler)
 
 	runErr := make(chan error, 1)
 	go func() {

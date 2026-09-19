@@ -1,4 +1,3 @@
-// Package http contains the HTTP transport: server, routing, handlers.
 package http
 
 import (
@@ -7,16 +6,18 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/upuzipu/ticketflow/internal/service"
+	"github.com/upuzipu/ticketflow/internal/transport/http/handler"
+	"github.com/upuzipu/ticketflow/internal/transport/http/middleware"
 )
 
-// Server wraps http.Server with timeouts and graceful shutdown.
 type Server struct {
 	srv *http.Server
 	log *slog.Logger
 }
 
-// NewServer builds the server with all routes registered on mux.
-func NewServer(addr string, log *slog.Logger) *Server {
+func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *handler.AuthHandler) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
@@ -24,10 +25,14 @@ func NewServer(addr string, log *slog.Logger) *Server {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	mux.HandleFunc("POST /auth/register", auth.Register)
+	mux.HandleFunc("POST /auth/login", auth.Login)
+	mux.Handle("GET /users/me", middleware.Auth(tokens)(http.HandlerFunc(auth.Me)))
+
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,
-			Handler:           mux,
+			Handler:           middleware.Logging(log)(mux),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
 			WriteTimeout:      15 * time.Second,
@@ -37,17 +42,15 @@ func NewServer(addr string, log *slog.Logger) *Server {
 	}
 }
 
-// Run blocks until the server stops.
 func (s *Server) Run() error {
 	s.log.Info("http server listening", "addr", s.srv.Addr)
 	err := s.srv.ListenAndServe()
 	if errors.Is(err, http.ErrServerClosed) {
-		return nil // normal shutdown, not an error
+		return nil
 	}
 	return err
 }
 
-// Shutdown gracefully drains in-flight requests.
 func (s *Server) Shutdown(ctx context.Context) error {
 	return s.srv.Shutdown(ctx)
 }
