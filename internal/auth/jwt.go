@@ -31,8 +31,8 @@ type JWTIssuer struct {
 }
 
 // NewJWTIssuer returns a JWTIssuer signing tokens with the HMAC secret.
-func NewJWTIssuer(secret []byte, accessTTL, refreshTTL time.Duration) JWTIssuer {
-	return JWTIssuer{secret: secret, accessTTL: accessTTL, refreshTTL: refreshTTL}
+func NewJWTIssuer(secret []byte, accessTTL, refreshTTL time.Duration) *JWTIssuer {
+	return &JWTIssuer{secret: secret, accessTTL: accessTTL, refreshTTL: refreshTTL}
 }
 
 // IssuePair returns a fresh access/refresh token pair for the user.

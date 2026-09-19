@@ -1,0 +1,3 @@
+HTTP_ADDR=:8080
+PG_DSN=postgres://ticketflow:ticketflow@localhost:5432/ticketflow?sslmode=disable
+JWT_SECRET=dev-only-secret-change-me-0123456789abcdef
