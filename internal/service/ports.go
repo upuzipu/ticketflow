@@ -34,6 +34,11 @@ type TokenIssuer interface {
 	// If the token is expired, malformed or forged, it returns an error
 	// matching domain.ErrUnauthorized.
 	ParseAccess(token string) (userID string, role domain.Role, err error)
+
+	// ParseRefresh validates a refresh token and returns its jti, user ID
+	// and expiration. If the token is expired, malformed or forged, it
+	// returns an error matching domain.ErrUnauthorized.
+	ParseRefresh(token string) (jti, userID string, expiresAt time.Time, err error)
 }
 
 // PasswordHasher hashes and verifies passwords.
@@ -141,4 +146,16 @@ type OrderRepository interface {
 
 	// PaymentIDByOrder returns the payment record ID for the order.
 	PaymentIDByOrder(ctx context.Context, orderID string) (string, error)
+}
+
+// RefreshTokenStore persists refresh token identities for rotation and revocation.
+type RefreshTokenStore interface {
+	// Create stores a new refresh token identity.
+	Create(ctx context.Context, jti, userID string, expiresAt time.Time) error
+
+	// Active reports whether the jti exists, is not revoked and not expired.
+	Active(ctx context.Context, jti string) (bool, error)
+
+	// Revoke marks the token identity as revoked. Idempotent.
+	Revoke(ctx context.Context, jti string) error
 }

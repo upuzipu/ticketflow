@@ -36,6 +36,9 @@ func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *
 	mux.Handle("POST /events/{id}/holds", middleware.Auth(tokens)(http.HandlerFunc(holds.Create)))
 	mux.Handle("DELETE /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Release)))
 
+	mux.HandleFunc("POST /auth/refresh", auth.Refresh)
+	mux.HandleFunc("POST /auth/logout", auth.Logout)
+
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,

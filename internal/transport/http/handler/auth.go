@@ -29,6 +29,10 @@ type tokenResponse struct {
 	Refresh string `json:"refresh"`
 }
 
+type refreshRequest struct {
+	RefreshToken string `json:"refresh_token"`
+}
+
 func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -70,4 +74,35 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.RespondJSON(w, http.StatusOK, map[string]string{"id": user.ID, "role": user.Role})
+}
+
+// Refresh handles POST /auth/refresh.
+func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	access, refresh, err := h.svc.Refresh(r.Context(), req.RefreshToken)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+	httpx.RespondJSON(w, http.StatusOK, tokenResponse{Access: access, Refresh: refresh})
+}
+
+// Logout handles POST /auth/logout.
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
+	var req refreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RefreshToken == "" {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	if err := h.svc.Logout(r.Context(), req.RefreshToken); err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

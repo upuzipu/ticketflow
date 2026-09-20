@@ -95,3 +95,32 @@ func (i *JWTIssuer) ParseAccess(token string) (string, domain.Role, error) {
 	}
 	return sub, domain.Role(roleStr), nil
 }
+
+// ParseRefresh validates a refresh token and returns its jti, user ID
+// and expiration time.
+func (i *JWTIssuer) ParseRefresh(token string) (string, string, time.Time, error) {
+	parsed, err := jwt.Parse(token,
+		func(t *jwt.Token) (any, error) { return i.secret, nil },
+		jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}),
+	)
+	if err != nil || !parsed.Valid {
+		return "", "", time.Time{}, fmt.Errorf("%w: invalid refresh token", domain.ErrUnauthorized)
+	}
+	claims, ok := parsed.Claims.(jwt.MapClaims)
+	if !ok || claims[claimTyp] != claimTypRefresh {
+		return "", "", time.Time{}, fmt.Errorf("%w: not a refresh token", domain.ErrUnauthorized)
+	}
+	jti, ok := claims[claimJTI].(string)
+	if !ok {
+		return "", "", time.Time{}, fmt.Errorf("%w: missing jti", domain.ErrUnauthorized)
+	}
+	sub, ok := claims[claimSub].(string)
+	if !ok {
+		return "", "", time.Time{}, fmt.Errorf("%w: missing sub", domain.ErrUnauthorized)
+	}
+	expF, ok := claims["exp"].(float64)
+	if !ok {
+		return "", "", time.Time{}, fmt.Errorf("%w: missing exp", domain.ErrUnauthorized)
+	}
+	return jti, sub, time.Unix(int64(expF), 0).UTC(), nil
+}

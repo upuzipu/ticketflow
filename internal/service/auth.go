@@ -8,44 +8,29 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"github.com/upuzipu/ticketflow/internal/domain"
 )
 
 // AuthService handles user registration and authentication.
 type AuthService struct {
-	users  UserRepository
-	hasher PasswordHasher
-	tokens TokenIssuer
+	users   UserRepository
+	hasher  PasswordHasher
+	tokens  TokenIssuer
+	refresh RefreshTokenStore
 }
 
 // NewAuthService wires the service with its dependencies.
-func NewAuthService(users UserRepository, hasher PasswordHasher, tokens TokenIssuer) *AuthService {
-	return &AuthService{users: users, hasher: hasher, tokens: tokens}
+func NewAuthService(users UserRepository, hasher PasswordHasher, tokens TokenIssuer, refresh RefreshTokenStore) *AuthService {
+	return &AuthService{users: users, hasher: hasher, tokens: tokens, refresh: refresh}
 }
 
 // Register creates a new user with the given email, password and role,
 // and returns the persisted domain.User.
-//
-// Allowed roles are domain.RoleBuyer and domain.RoleOrganizer. Any other
-// role results in an error wrapping domain.ErrForbidden.
-//
-// The email is normalized to lower case before being stored. The password
-// is hashed via the configured PasswordHasher; the plain-text password is
-// never persisted.
-//
-// Returned errors:
-//   - wraps domain.ErrForbidden — role is not allowed;
-//   - wraps domain.ErrValidation — email is empty or password is shorter
-//     than 8 characters;
-//   - wraps domain.ErrConflict  — a user with the same email already exists
-//     (propagated from the repository);
-//   - any other error is returned unwrapped.
 func (s *AuthService) Register(ctx context.Context, email, password string, role domain.Role) (*domain.User, error) {
-	// guard: недопустимая роль — сразу наружу
 	if role != domain.RoleBuyer && role != domain.RoleOrganizer {
 		return nil, fmt.Errorf("%w: invalid role %q", domain.ErrForbidden, role)
 	}
-	// guard: невалидный ввод — раньше хеширования
 	if email == "" || len(password) < 8 {
 		return nil, fmt.Errorf("%w: email is required, password must be at least 8 characters", domain.ErrValidation)
 	}
@@ -69,25 +54,13 @@ func (s *AuthService) Register(ctx context.Context, email, password string, role
 	return u, nil
 }
 
-// Login verifies the given credentials and, on success, returns a freshly
-// issued access/refresh token pair.
-//
-// The email is normalized to lower case before lookup. To avoid user
-// enumeration, an unknown email and a wrong password are reported with the
-// same error — domain.ErrUnauthorized — so callers cannot distinguish
-// between the two cases.
-//
-// Returned errors:
-//   - domain.ErrUnauthorized — the user does not exist or the password is
-//     incorrect;
-//   - any other error from the repository or the token issuer is returned
-//     as-is.
+// Login verifies the credentials and returns a fresh token pair,
+// registering the refresh token for later rotation/revocation.
 func (s *AuthService) Login(ctx context.Context, email, password string) (access, refresh string, err error) {
 	u, err := s.users.ByEmail(ctx, strings.ToLower(email))
 	if errors.Is(err, domain.ErrNotFound) {
-		return "", "", domain.ErrUnauthorized
+		return "", "", fmt.Errorf("%w: unknown email", domain.ErrUnauthorized)
 	}
-
 	if err != nil {
 		return "", "", err
 	}
@@ -96,5 +69,70 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (access
 		return "", "", fmt.Errorf("%w: invalid password", domain.ErrUnauthorized)
 	}
 
-	return s.tokens.IssuePair(u)
+	access, refresh, err = s.tokens.IssuePair(u)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := s.registerRefresh(ctx, u.ID, refresh); err != nil {
+		return "", "", err
+	}
+	return access, refresh, nil
+}
+
+// Refresh rotates the token pair: the old refresh token is revoked,
+// a new pair is issued and registered. Reuse of a revoked token fails.
+func (s *AuthService) Refresh(ctx context.Context, oldRefresh string) (access, refresh string, err error) {
+	jti, userID, _, err := s.tokens.ParseRefresh(oldRefresh)
+	if err != nil {
+		return "", "", err
+	}
+
+	active, err := s.refresh.Active(ctx, jti)
+	if err != nil {
+		return "", "", err
+	}
+	if !active {
+		return "", "", fmt.Errorf("%w: refresh token revoked or expired", domain.ErrUnauthorized)
+	}
+
+	u, err := s.users.ByID(ctx, userID)
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := s.refresh.Revoke(ctx, jti); err != nil {
+		return "", "", err
+	}
+
+	access, refresh, err = s.tokens.IssuePair(u)
+	if err != nil {
+		return "", "", err
+	}
+	access, refresh, err = s.tokens.IssuePair(u)
+	if err != nil {
+		return "", "", err
+	}
+	if err := s.registerRefresh(ctx, u.ID, refresh); err != nil {
+		return "", "", err
+	}
+	return access, refresh, nil
+}
+
+// Logout revokes the refresh token. The access token simply expires.
+func (s *AuthService) Logout(ctx context.Context, refreshToken string) error {
+	jti, _, _, err := s.tokens.ParseRefresh(refreshToken)
+	if err != nil {
+		return err
+	}
+	return s.refresh.Revoke(ctx, jti)
+}
+
+// registerRefresh stores the new refresh token identity in the DB.
+func (s *AuthService) registerRefresh(ctx context.Context, userID, refreshToken string) error {
+	jti, _, exp, err := s.tokens.ParseRefresh(refreshToken)
+	if err != nil {
+		return err
+	}
+	return s.refresh.Create(ctx, jti, userID, exp)
 }

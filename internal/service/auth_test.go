@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
 )
@@ -63,8 +64,33 @@ func (fakeTokens) ParseAccess(token string) (string, domain.Role, error) {
 	return "", "", errors.New("not implemented in this fake")
 }
 
+func (fakeTokens) ParseRefresh(token string) (string, string, time.Time, error) {
+	return "jti-" + token, "u1", time.Now().Add(24 * time.Hour), nil
+}
+
+type fakeRefreshStore struct {
+	revoked map[string]bool
+}
+
+func newFakeRefreshStore() *fakeRefreshStore {
+	return &fakeRefreshStore{revoked: map[string]bool{}}
+}
+
+func (f *fakeRefreshStore) Create(ctx context.Context, jti, userID string, expiresAt time.Time) error {
+	return nil
+}
+
+func (f *fakeRefreshStore) Active(ctx context.Context, jti string) (bool, error) {
+	return !f.revoked[jti], nil
+}
+
+func (f *fakeRefreshStore) Revoke(ctx context.Context, jti string) error {
+	f.revoked[jti] = true
+	return nil
+}
+
 func newTestService(repo *fakeUserRepo) *AuthService {
-	return NewAuthService(repo, fakeHasher{}, fakeTokens{})
+	return NewAuthService(repo, fakeHasher{}, fakeTokens{}, newFakeRefreshStore())
 }
 
 func TestRegister(t *testing.T) {

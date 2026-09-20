@@ -50,7 +50,8 @@ func run() error {
 	usersRepo := postgres.NewUserRepository(pool)
 	hasher := auth.NewBcryptHasher(auth.DefaultCost)
 	issuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
-	authService := service.NewAuthService(usersRepo, hasher, issuer)
+	refreshStore := postgres.NewRefreshTokenStore(pool)
+	authService := service.NewAuthService(usersRepo, hasher, issuer, refreshStore)
 
 	eventsRepo := postgres.NewEventRepository(pool)
 	eventService := service.NewEventService(eventsRepo, eventsRepo)
