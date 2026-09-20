@@ -82,12 +82,10 @@ type EventStats interface {
 
 // HoldRepository persists and retrieves ticket holds.
 type HoldRepository interface {
-	// Create stores a new hold with its captured ticket IDs.
 	Create(ctx context.Context, h *domain.Hold) error
-
-	// ByID returns the hold by ID.
-	// If no such hold exists, it returns an error matching domain.ErrNotFound.
 	ByID(ctx context.Context, id string) (*domain.Hold, error)
+	// ExpiredActive returns active holds whose ExpiresAt is before now.
+	ExpiredActive(ctx context.Context, now time.Time) ([]*domain.Hold, error)
 }
 
 // Inventory reserves and releases tickets atomically.

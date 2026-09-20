@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/upuzipu/ticketflow/internal/auth"
 	"github.com/upuzipu/ticketflow/internal/config"
@@ -17,6 +18,7 @@ import (
 	"github.com/upuzipu/ticketflow/internal/service"
 	apphttp "github.com/upuzipu/ticketflow/internal/transport/http"
 	"github.com/upuzipu/ticketflow/internal/transport/http/handler"
+	"github.com/upuzipu/ticketflow/internal/worker"
 )
 
 func main() {
@@ -52,33 +54,39 @@ func run() error {
 
 	eventsRepo := postgres.NewEventRepository(pool)
 	eventService := service.NewEventService(eventsRepo, eventsRepo)
+
 	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
 	holdService := service.NewHoldService(holdsRepo, inventory)
-	holdHandler := handler.NewHoldHandler(holdService)
 
 	authHandler := handler.NewAuthHandler(authService)
 	eventHandler := handler.NewEventHandler(eventService)
+	holdHandler := handler.NewHoldHandler(holdService)
+
+	expirer := worker.NewHoldExpirer(inventory, holdsRepo, log)
 
 	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler)
 
-	runErr := make(chan error, 1)
-	go func() {
-		runErr <- server.Run()
-	}()
+	g, gctx := errgroup.WithContext(ctx)
 
-	select {
-	case err := <-runErr:
-		return fmt.Errorf("http server: %w", err)
-	case <-ctx.Done():
+	g.Go(func() error {
+		return server.Run()
+	})
+	g.Go(func() error {
+		return expirer.Run(gctx)
+	})
+	g.Go(func() error {
+		<-ctx.Done() // OS signal: Ctrl+C or SIGTERM
 		log.Info("shutdown signal received")
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return server.Shutdown(shutdownCtx)
+	})
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("app: %w", err)
 	}
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("graceful shutdown: %w", err)
-	}
 	log.Info("server stopped cleanly")
 	return nil
 }

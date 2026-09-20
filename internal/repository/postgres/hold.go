@@ -202,3 +202,37 @@ func (i *Inventory) Release(ctx context.Context, holdID string) error {
 	}
 	return nil
 }
+
+// ExpiredActive returns active holds whose ExpiresAt is before now.
+func (r *HoldRepository) ExpiredActive(ctx context.Context, now time.Time) ([]*domain.Hold, error) {
+	const sql = `
+        SELECT id, user_id, event_id, category_id, ticket_ids, status, expires_at, created_at
+          FROM holds
+         WHERE status = 'active' AND expires_at <= $1
+         ORDER BY id
+         LIMIT 100`
+
+	rows, err := r.pool.p.Query(ctx, sql, now)
+	if err != nil {
+		return nil, fmt.Errorf("query expired holds: %w", err)
+	}
+	defer rows.Close()
+
+	holds := make([]*domain.Hold, 0)
+	for rows.Next() {
+		var (
+			h      domain.Hold
+			status string
+		)
+		if err := rows.Scan(&h.ID, &h.UserID, &h.EventID, &h.CategoryID,
+			&h.TicketIDs, &status, &h.ExpiresAt, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan hold: %w", err)
+		}
+		h.Status = domain.HoldStatus(status)
+		holds = append(holds, &h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate expired holds: %w", err)
+	}
+	return holds, nil
+}

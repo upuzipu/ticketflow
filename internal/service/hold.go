@@ -11,7 +11,7 @@ import (
 )
 
 // HoldTTL is how long a hold keeps tickets reserved.
-const HoldTTL = 10 * time.Minute
+const HoldTTL = 20 * time.Second // TEMP: для живой проверки expirer; вернуть 10 * time.Minute
 
 // MaxHoldsPerUser limits open holds per user per event —
 // a simple guard against reservation spam.
