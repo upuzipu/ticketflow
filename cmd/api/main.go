@@ -52,13 +52,15 @@ func run() error {
 
 	eventsRepo := postgres.NewEventRepository(pool)
 	eventService := service.NewEventService(eventsRepo, eventsRepo)
+	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
-	_ = inventory
+	holdService := service.NewHoldService(holdsRepo, inventory)
+	holdHandler := handler.NewHoldHandler(holdService)
 
 	authHandler := handler.NewAuthHandler(authService)
 	eventHandler := handler.NewEventHandler(eventService)
 
-	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler)
+	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler)
 
 	runErr := make(chan error, 1)
 	go func() {

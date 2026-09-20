@@ -17,7 +17,7 @@ type Server struct {
 	log *slog.Logger
 }
 
-func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *handler.AuthHandler, events *handler.EventHandler) *Server {
+func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *handler.AuthHandler, events *handler.EventHandler, holds *handler.HoldHandler) *Server {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) {
@@ -33,6 +33,8 @@ func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *
 	mux.Handle("POST /events", middleware.Auth(tokens)(http.HandlerFunc(events.Create)))
 	mux.Handle("POST /events/{id}/publish", middleware.Auth(tokens)(http.HandlerFunc(events.Publish)))
 	mux.HandleFunc("GET /events", events.List)
+	mux.Handle("POST /events/{id}/holds", middleware.Auth(tokens)(http.HandlerFunc(holds.Create)))
+	mux.Handle("DELETE /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Release)))
 
 	return &Server{
 		srv: &http.Server{
