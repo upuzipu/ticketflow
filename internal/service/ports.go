@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
+	"github.com/upuzipu/ticketflow/internal/repository/postgres"
 )
 
 // UserRepository persists and retrieves users.
@@ -61,4 +62,19 @@ type EventRepository interface {
 	// UpdateStatus persists a status transition of the event.
 	// If the event does not exist, it returns an error matching domain.ErrNotFound.
 	UpdateStatus(ctx context.Context, id string, status domain.EventStatus) error
+}
+
+// AvailabilityReader provides per-category ticket stats for an event.
+type AvailabilityReader interface {
+	// Availability returns per-category counters for the event.
+	// If the event does not exist, it returns an error matching domain.ErrNotFound.
+	Availability(ctx context.Context, eventID string) ([]postgres.CategoryAvailability, error)
+}
+
+// EventStats provides per-category ticket counters for an event.
+type EventStats interface {
+	// Availability returns per-category counters for the event.
+	// A non-existing event yields an empty list (existence is
+	// checked by the service).
+	Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error)
 }

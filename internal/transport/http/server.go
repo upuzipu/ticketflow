@@ -28,6 +28,7 @@ func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *
 	mux.HandleFunc("POST /auth/register", auth.Register)
 	mux.HandleFunc("POST /auth/login", auth.Login)
 	mux.Handle("GET /users/me", middleware.Auth(tokens)(http.HandlerFunc(auth.Me)))
+	mux.HandleFunc("GET /events/{id}/availability", events.Availability)
 
 	mux.Handle("POST /events", middleware.Auth(tokens)(http.HandlerFunc(events.Create)))
 	mux.Handle("POST /events/{id}/publish", middleware.Auth(tokens)(http.HandlerFunc(events.Publish)))

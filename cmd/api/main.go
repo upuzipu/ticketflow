@@ -51,7 +51,7 @@ func run() error {
 	authService := service.NewAuthService(usersRepo, hasher, issuer)
 
 	eventsRepo := postgres.NewEventRepository(pool)
-	eventService := service.NewEventService(eventsRepo)
+	eventService := service.NewEventService(eventsRepo, eventsRepo)
 
 	authHandler := handler.NewAuthHandler(authService)
 	eventHandler := handler.NewEventHandler(eventService)

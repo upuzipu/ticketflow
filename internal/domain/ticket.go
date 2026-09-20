@@ -80,3 +80,14 @@ func (t *Ticket) CanTransitionTo(s TicketStatus) bool {
 		return false
 	}
 }
+
+// CategoryAvailability is a per-category ticket snapshot.
+type CategoryAvailability struct {
+	CategoryID string
+	Name       string
+	Price      Money
+	TotalQty   int
+	Available  int
+	Held       int
+	Sold       int
+}

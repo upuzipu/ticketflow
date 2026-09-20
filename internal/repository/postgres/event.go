@@ -192,3 +192,53 @@ func parseCursor(cursor string) (time.Time, string, error) {
 	}
 	return t, parts[1], nil
 }
+
+// CategoryAvailability is a per-category ticket counter.
+type CategoryAvailability struct {
+	CategoryID string
+	Name       string
+	Price      domain.Money
+	TotalQty   int
+	Available  int
+	Held       int
+	Sold       int
+}
+
+// Availability returns per-category ticket stats for the event.
+func (r *EventRepository) Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error) {
+	const sql = `
+        SELECT c.id, c.name, c.price_minor, c.currency, c.total_qty,
+               COALESCE(SUM(CASE WHEN t.status = 'available' THEN 1 ELSE 0 END), 0) AS available,
+               COALESCE(SUM(CASE WHEN t.status = 'held'      THEN 1 ELSE 0 END), 0) AS held,
+               COALESCE(SUM(CASE WHEN t.status = 'sold'      THEN 1 ELSE 0 END), 0) AS sold
+          FROM ticket_categories c
+          LEFT JOIN tickets t ON t.category_id = c.id
+         WHERE c.event_id = $1
+         GROUP BY c.id, c.name, c.price_minor, c.currency, c.total_qty
+         ORDER BY c.name`
+
+	rows, err := r.pool.p.Query(ctx, sql, eventID)
+	if err != nil {
+		return nil, fmt.Errorf("query availability: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]domain.CategoryAvailability, 0)
+	for rows.Next() {
+		var (
+			a        domain.CategoryAvailability
+			amount   int64
+			currency string
+		)
+		if err := rows.Scan(&a.CategoryID, &a.Name, &amount, &currency, &a.TotalQty,
+			&a.Available, &a.Held, &a.Sold); err != nil {
+			return nil, fmt.Errorf("scan availability: %w", err)
+		}
+		a.Price = domain.Money{Amount: amount, Currency: currency}
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate availability: %w", err)
+	}
+	return out, nil
+}

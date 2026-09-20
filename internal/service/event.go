@@ -13,11 +13,12 @@ import (
 // EventService manages the event catalog.
 type EventService struct {
 	events EventRepository
+	stats  EventStats
 }
 
 // NewEventService wires the service with its dependencies.
-func NewEventService(events EventRepository) *EventService {
-	return &EventService{events: events}
+func NewEventService(events EventRepository, stats EventStats) *EventService {
+	return &EventService{events: events, stats: stats}
 }
 
 // Create validates and stores a new event together with its categories.
@@ -110,4 +111,12 @@ func (s *EventService) List(ctx context.Context, f domain.EventFilter) ([]domain
 		f.Limit = 20
 	}
 	return s.events.List(ctx, f)
+}
+
+// Availability returns per-category ticket counters for the event.
+func (s *EventService) Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error) {
+	if _, err := s.events.ByID(ctx, eventID); err != nil {
+		return nil, err
+	}
+	return s.stats.Availability(ctx, eventID)
 }

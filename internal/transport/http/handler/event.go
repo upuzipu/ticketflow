@@ -120,3 +120,23 @@ func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
 		"next_cursor": next,
 	})
 }
+
+// Availability handles GET /events/{id}/availability.
+func (h *EventHandler) Availability(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if _, err := uuid.Parse(eventID); err != nil {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	stats, err := h.svc.Availability(r.Context(), eventID)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, map[string]any{
+		"event_id":   eventID,
+		"categories": stats,
+	})
+}
