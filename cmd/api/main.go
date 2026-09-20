@@ -52,6 +52,8 @@ func run() error {
 
 	eventsRepo := postgres.NewEventRepository(pool)
 	eventService := service.NewEventService(eventsRepo, eventsRepo)
+	inventory := postgres.NewInventory(pool)
+	_ = inventory
 
 	authHandler := handler.NewAuthHandler(authService)
 	eventHandler := handler.NewEventHandler(eventService)

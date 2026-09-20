@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"time"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
 	"github.com/upuzipu/ticketflow/internal/repository/postgres"
@@ -77,4 +78,30 @@ type EventStats interface {
 	// A non-existing event yields an empty list (existence is
 	// checked by the service).
 	Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error)
+}
+
+// HoldRepository persists and retrieves ticket holds.
+type HoldRepository interface {
+	// Create stores a new hold with its captured ticket IDs.
+	Create(ctx context.Context, h *domain.Hold) error
+
+	// ByID returns the hold by ID.
+	// If no such hold exists, it returns an error matching domain.ErrNotFound.
+	ByID(ctx context.Context, id string) (*domain.Hold, error)
+}
+
+// Inventory reserves and releases tickets atomically.
+type Inventory interface {
+	// Reserve atomically captures qty available tickets of the category
+	// and marks them held until expiresAt, associating them with holdID
+	// and userID.
+	// If fewer than qty tickets are available, it returns an error
+	// matching domain.ErrSoldOut.
+	// If the category does not exist, it returns an error matching
+	// domain.ErrNotFound.
+	Reserve(ctx context.Context, holdID string, userID string, categoryID string, qty int, expiresAt time.Time) ([]string, error)
+
+	// Release returns tickets captured by the hold to the available status.
+	// Idempotent: releasing an unknown or already released hold is a no-op (nil).
+	Release(ctx context.Context, holdID string) error
 }

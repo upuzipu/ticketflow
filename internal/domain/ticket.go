@@ -1,6 +1,9 @@
 package domain
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 type TicketStatus string
 
@@ -90,4 +93,11 @@ type CategoryAvailability struct {
 	Available  int
 	Held       int
 	Sold       int
+}
+
+// Reservation is the result of a successful ticket reservation.
+type Reservation struct {
+	HoldID    string
+	TicketIDs []string
+	ExpiresAt time.Time
 }
