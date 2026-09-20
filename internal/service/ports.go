@@ -42,3 +42,23 @@ type PasswordHasher interface {
 	// Verify reports whether the password matches the stored hash.
 	Verify(hash, password string) bool
 }
+
+// EventRepository persists and retrieves events.
+type EventRepository interface {
+	// Create stores a new event together with its ticket categories.
+	Create(ctx context.Context, e *domain.Event) error
+
+	// ByID returns the event by ID.
+	// If no such event exists, it returns an error matching domain.ErrNotFound.
+	ByID(ctx context.Context, id string) (*domain.Event, error)
+
+	// List returns published events matching the filter,
+	// ordered by StartsAt ascending, with keyset pagination.
+	// The second return value is the cursor for the next page
+	// (empty string = no more pages).
+	List(ctx context.Context, f domain.EventFilter) ([]domain.Event, string, error)
+
+	// UpdateStatus persists a status transition of the event.
+	// If the event does not exist, it returns an error matching domain.ErrNotFound.
+	UpdateStatus(ctx context.Context, id string, status domain.EventStatus) error
+}

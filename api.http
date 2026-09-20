@@ -1,0 +1,22 @@
+### Register organizer
+POST {{base_url}}/auth/register
+Content-Type: application/json
+
+{"email": "anna@example.com", "password": "secret123", "role": "organizer"}
+
+### Login organizer
+# @name loginOrg
+POST {{base_url}}/auth/login
+Content-Type: application/json
+
+{"email": "anna@example.com", "password": "secret123"}
+
+### Create event (organizer)
+POST {{base_url}}/events
+Authorization: Bearer {{orgToken}}
+Content-Type: application/json
+
+{"title": "Rock Concert", "starts_at": "2026-12-31T20:00:00Z", "category_qty": {"VIP": 10, "Regular": 100}}
+
+### List events
+GET {{base_url}}/events

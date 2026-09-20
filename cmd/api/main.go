@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/joho/godotenv"
+
 	"github.com/upuzipu/ticketflow/internal/auth"
 	"github.com/upuzipu/ticketflow/internal/config"
 	"github.com/upuzipu/ticketflow/internal/repository/postgres"
@@ -28,6 +30,8 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	_ = godotenv.Load()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -46,9 +50,13 @@ func run() error {
 	issuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
 	authService := service.NewAuthService(usersRepo, hasher, issuer)
 
-	authHandler := handler.NewAuthHandler(authService)
+	eventsRepo := postgres.NewEventRepository(pool)
+	eventService := service.NewEventService(eventsRepo)
 
-	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler)
+	authHandler := handler.NewAuthHandler(authService)
+	eventHandler := handler.NewEventHandler(eventService)
+
+	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler)
 
 	runErr := make(chan error, 1)
 	go func() {

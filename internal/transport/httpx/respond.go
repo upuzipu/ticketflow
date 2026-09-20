@@ -9,14 +9,15 @@ import (
 )
 
 var errorStatus = map[error]int{
-	domain.ErrNotFound:     http.StatusNotFound,
-	domain.ErrValidation:   http.StatusUnprocessableEntity,
-	domain.ErrConflict:     http.StatusConflict,
-	domain.ErrForbidden:    http.StatusForbidden,
-	domain.ErrUnauthorized: http.StatusUnauthorized,
-	domain.ErrSoldOut:      http.StatusConflict,
-	domain.ErrHoldExpired:  http.StatusGone,
-	domain.ErrRateLimited:  http.StatusTooManyRequests,
+	domain.ErrNotFound:          http.StatusNotFound,
+	domain.ErrValidation:        http.StatusUnprocessableEntity,
+	domain.ErrConflict:          http.StatusConflict,
+	domain.ErrForbidden:         http.StatusForbidden,
+	domain.ErrUnauthorized:      http.StatusUnauthorized,
+	domain.ErrSoldOut:           http.StatusConflict,
+	domain.ErrHoldExpired:       http.StatusGone,
+	domain.ErrRateLimited:       http.StatusTooManyRequests,
+	domain.ErrInvalidTransition: http.StatusConflict,
 }
 
 type errorBody struct {
