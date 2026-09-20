@@ -102,4 +102,43 @@ type Inventory interface {
 	// Release returns tickets captured by the hold to the available status.
 	// Idempotent: releasing an unknown or already released hold is a no-op (nil).
 	Release(ctx context.Context, holdID string) error
+
+	// CategoryPrice returns the price of the category.
+	// If the category does not exist, it returns an error matching domain.ErrNotFound.
+	CategoryPrice(ctx context.Context, categoryID string) (domain.Money, error)
+
+	// ConfirmHold finalizes a paid hold: its tickets become sold and the
+	// hold is marked confirmed.
+	// If the hold does not exist, it returns an error matching domain.ErrNotFound.
+	// Idempotent: confirming a non-active hold is a no-op.
+	ConfirmHold(ctx context.Context, holdID string) error
+
+	// TicketsByHold returns the current statuses of the hold's tickets.
+	TicketsByHold(ctx context.Context, holdID string) (map[string]domain.TicketStatus, error)
+}
+
+// OrderRepository persists and retrieves orders and payments.
+type OrderRepository interface {
+	// Create stores a new order with a pending payment record
+	// in one transaction.
+	Create(ctx context.Context, o *domain.Order, p *domain.Payment) error
+
+	// ByID returns the order by ID.
+	// If no such order exists, it returns an error matching domain.ErrNotFound.
+	ByID(ctx context.Context, id string) (*domain.Order, error)
+
+	// ByIdempotencyKey returns the order created earlier by the user
+	// with the same idempotency key.
+	// If no such order exists, it returns an error matching domain.ErrNotFound.
+	ByIdempotencyKey(ctx context.Context, userID, key string) (*domain.Order, error)
+
+	// UpdateStatus persists a status transition.
+	// If the order does not exist, it returns an error matching domain.ErrNotFound.
+	UpdateStatus(ctx context.Context, id string, status domain.OrderStatus) error
+
+	// UpdatePaymentStatus persists the payment status and gateway ref.
+	UpdatePaymentStatus(ctx context.Context, paymentID string, status domain.PaymentStatus, gatewayRef string) error
+
+	// PaymentIDByOrder returns the payment record ID for the order.
+	PaymentIDByOrder(ctx context.Context, orderID string) (string, error)
 }

@@ -18,6 +18,8 @@ var errorStatus = map[error]int{
 	domain.ErrHoldExpired:       http.StatusGone,
 	domain.ErrRateLimited:       http.StatusTooManyRequests,
 	domain.ErrInvalidTransition: http.StatusConflict,
+	domain.ErrPaymentDeclined:   http.StatusPaymentRequired,
+	domain.ErrGatewayTimeout:    http.StatusFailedDependency,
 }
 
 type errorBody struct {

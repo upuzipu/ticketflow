@@ -63,6 +63,40 @@ func (r *HoldRepository) ByID(ctx context.Context, id string) (*domain.Hold, err
 	return &h, nil
 }
 
+// ExpiredActive returns active holds whose ExpiresAt is before now.
+func (r *HoldRepository) ExpiredActive(ctx context.Context, now time.Time) ([]*domain.Hold, error) {
+	const sql = `
+        SELECT id, user_id, event_id, category_id, ticket_ids, status, expires_at, created_at
+          FROM holds
+         WHERE status = 'active' AND expires_at <= $1
+         ORDER BY id
+         LIMIT 100`
+
+	rows, err := r.pool.p.Query(ctx, sql, now)
+	if err != nil {
+		return nil, fmt.Errorf("query expired holds: %w", err)
+	}
+	defer rows.Close()
+
+	holds := make([]*domain.Hold, 0)
+	for rows.Next() {
+		var (
+			h      domain.Hold
+			status string
+		)
+		if err := rows.Scan(&h.ID, &h.UserID, &h.EventID, &h.CategoryID,
+			&h.TicketIDs, &status, &h.ExpiresAt, &h.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan hold: %w", err)
+		}
+		h.Status = domain.HoldStatus(status)
+		holds = append(holds, &h)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate expired holds: %w", err)
+	}
+	return holds, nil
+}
+
 // Inventory implements service.Inventory on PostgreSQL.
 type Inventory struct {
 	pool *Pool
@@ -82,7 +116,6 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. find the event the category belongs to (also validates category existence)
 	const eventSQL = `
         SELECT event_id FROM ticket_categories WHERE id = $1`
 	var eventID string
@@ -93,9 +126,6 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 		return nil, fmt.Errorf("find event by category: %w", err)
 	}
 
-	// 2. atomically pick qty available tickets:
-	//    FOR UPDATE locks the rows until commit,
-	//    SKIP LOCKED makes concurrent reservers take OTHER rows, not wait
 	const pickSQL = `
         SELECT id FROM tickets
          WHERE category_id = $1 AND status = 'available'
@@ -121,12 +151,10 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 		return nil, fmt.Errorf("iterate tickets: %w", err)
 	}
 
-	// 3. not enough tickets — nothing is captured, tx rolls back via defer
 	if len(ids) < qty {
 		return nil, domain.ErrSoldOut
 	}
 
-	// 4. store the hold
 	const holdSQL = `
         INSERT INTO holds (id, user_id, event_id, category_id, ticket_ids, status, expires_at, created_at)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
@@ -136,7 +164,6 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 		return nil, fmt.Errorf("insert hold: %w", err)
 	}
 
-	// 5. mark the tickets held
 	const updateSQL = `
         UPDATE tickets
            SET status = 'held', hold_id = $2, version = version + 1
@@ -203,36 +230,104 @@ func (i *Inventory) Release(ctx context.Context, holdID string) error {
 	return nil
 }
 
-// ExpiredActive returns active holds whose ExpiresAt is before now.
-func (r *HoldRepository) ExpiredActive(ctx context.Context, now time.Time) ([]*domain.Hold, error) {
-	const sql = `
-        SELECT id, user_id, event_id, category_id, ticket_ids, status, expires_at, created_at
-          FROM holds
-         WHERE status = 'active' AND expires_at <= $1
-         ORDER BY id
-         LIMIT 100`
-
-	rows, err := r.pool.p.Query(ctx, sql, now)
+// ConfirmHold finalizes a paid hold: tickets held → sold, hold → confirmed.
+// Idempotent: confirming a non-active hold is a no-op.
+func (i *Inventory) ConfirmHold(ctx context.Context, holdID string) error {
+	tx, err := i.pool.p.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("query expired holds: %w", err)
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const selSQL = `
+        SELECT status, ticket_ids FROM holds
+         WHERE id = $1
+         FOR UPDATE`
+	var (
+		status    string
+		ticketIDs []string
+	)
+	err = tx.QueryRow(ctx, selSQL, holdID).Scan(&status, &ticketIDs)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("query hold: %w", err)
+	}
+	if status != string(domain.HoldActive) {
+		return nil // already confirmed/released/expired — idempotent no-op
+	}
+
+	const updTicketsSQL = `
+        UPDATE tickets
+           SET status = 'sold', version = version + 1
+         WHERE id = ANY($1) AND status = 'held'`
+	tag, err := tx.Exec(ctx, updTicketsSQL, ticketIDs)
+	if err != nil {
+		return fmt.Errorf("sell tickets: %w", err)
+	}
+	if tag.RowsAffected() != int64(len(ticketIDs)) {
+		return fmt.Errorf("sell tickets: updated %d of %d", tag.RowsAffected(), len(ticketIDs))
+	}
+
+	const updHoldSQL = `
+        UPDATE holds SET status = 'confirmed' WHERE id = $1`
+	if _, err := tx.Exec(ctx, updHoldSQL, holdID); err != nil {
+		return fmt.Errorf("confirm hold: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
+}
+
+// CategoryPrice returns the price of the category.
+func (i *Inventory) CategoryPrice(ctx context.Context, categoryID string) (domain.Money, error) {
+	const sql = `
+        SELECT price_minor, currency FROM ticket_categories WHERE id = $1`
+
+	var (
+		amount   int64
+		currency string
+	)
+	err := i.pool.p.QueryRow(ctx, sql, categoryID).Scan(&amount, &currency)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.Money{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Money{}, fmt.Errorf("query category price: %w", err)
+	}
+	return domain.Money{Amount: amount, Currency: currency}, nil
+}
+
+// TicketsByHold returns the current statuses of the hold's tickets.
+func (i *Inventory) TicketsByHold(ctx context.Context, holdID string) (map[string]domain.TicketStatus, error) {
+	const sql = `
+        SELECT t.id, t.status
+          FROM tickets t
+          JOIN holds h ON t.id = ANY(h.ticket_ids)
+         WHERE h.id = $1`
+
+	rows, err := i.pool.p.Query(ctx, sql, holdID)
+	if err != nil {
+		return nil, fmt.Errorf("query tickets by hold: %w", err)
 	}
 	defer rows.Close()
 
-	holds := make([]*domain.Hold, 0)
+	out := make(map[string]domain.TicketStatus)
 	for rows.Next() {
 		var (
-			h      domain.Hold
+			id     string
 			status string
 		)
-		if err := rows.Scan(&h.ID, &h.UserID, &h.EventID, &h.CategoryID,
-			&h.TicketIDs, &status, &h.ExpiresAt, &h.CreatedAt); err != nil {
-			return nil, fmt.Errorf("scan hold: %w", err)
+		if err := rows.Scan(&id, &status); err != nil {
+			return nil, fmt.Errorf("scan ticket status: %w", err)
 		}
-		h.Status = domain.HoldStatus(status)
-		holds = append(holds, &h)
+		out[id] = domain.TicketStatus(status)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate expired holds: %w", err)
+		return nil, fmt.Errorf("iterate tickets by hold: %w", err)
 	}
-	return holds, nil
+	return out, nil
 }

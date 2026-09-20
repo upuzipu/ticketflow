@@ -26,3 +26,9 @@ var (
 	ErrIdempotencyConflict = errors.New("domain: idempotency key conflict")
 	ErrRateLimited         = errors.New("domain: rate limit exceeded")
 )
+
+// Payment errors.
+var (
+	ErrPaymentDeclined = errors.New("domain: payment declined")
+	ErrGatewayTimeout  = errors.New("domain: payment gateway timeout")
+)
