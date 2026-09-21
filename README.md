@@ -76,6 +76,8 @@ order_saga_test (success / decline / timeout / replay).
     GET    /ws/events/{id}           WebSocket availability
     GET    /metrics                  Prometheus
 
+API reference: interactive Swagger UI at http://localhost:8081 (after docker compose up swagger-ui)
+
 ## Roadmap
 
 - gRPC inventory service
