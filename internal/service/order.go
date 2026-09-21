@@ -42,7 +42,6 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		return nil, false, fmt.Errorf("%w: hold id must be a valid uuid", domain.ErrValidation)
 	}
 
-	// [1] idempotent replay?
 	existing, err := s.orders.ByIdempotencyKey(ctx, user.ID, key)
 	if err == nil {
 		return existing, false, nil
@@ -51,7 +50,6 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		return nil, false, err
 	}
 
-	// [2] hold must be valid, owned by the user, active and not expired
 	h, err := s.holds.ByID(ctx, holdID)
 	if err != nil {
 		return nil, false, err
@@ -67,7 +65,6 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 			h.ExpiresAt.Format(time.RFC3339))
 	}
 
-	// [3] total = category price × number of captured tickets
 	price, err := s.invent.CategoryPrice(ctx, h.CategoryID)
 	if err != nil {
 		return nil, false, err
@@ -77,7 +74,6 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		return nil, false, fmt.Errorf("compute total: %w", err)
 	}
 
-	// [4] TX₁: order + payment, both pending
 	now := time.Now().UTC()
 	o := &domain.Order{
 		ID:             uuid.NewString(),
@@ -98,10 +94,8 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		CreatedAt: now,
 	}
 
-	err = s.orders.Create(ctx, o, p)
+	err = s.orders.Create(ctx, o, p, h.TicketIDs)
 	if errors.Is(err, domain.ErrConflict) {
-		// concurrent duplicate won the UNIQUE(user_id, idempotency_key) race:
-		// re-read the winner's order and return it as a replay
 		winner, getErr := s.orders.ByIdempotencyKey(ctx, user.ID, key)
 		if getErr != nil {
 			return nil, false, getErr
@@ -122,20 +116,20 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 
 // Pay charges the card for the pending order and finalizes the saga.
 func (s *OrderService) Pay(ctx context.Context, user *domain.User, orderID string) (*domain.Order, error) {
-	// 1. the order must exist...
+
 	o, err := s.orders.ByID(ctx, orderID)
 	if err != nil {
 		return nil, err
 	}
-	// 2. ...belong to the caller...
+
 	if o.UserID != user.ID {
 		return nil, fmt.Errorf("%w: order belongs to another user", domain.ErrForbidden)
 	}
-	// 3. ...and be payable
+
 	if o.Status != domain.OrderPending {
 		return nil, fmt.Errorf("%w: order in status %q is not payable", domain.ErrConflict, o.Status)
 	}
-	// 4. charge and finalize (shared with Create)
+
 	h, err := s.holds.ByID(ctx, o.HoldID)
 	if err != nil {
 		return nil, err

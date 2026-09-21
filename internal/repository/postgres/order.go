@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -12,16 +14,18 @@ import (
 
 // OrderRepository implements service.OrderRepository on PostgreSQL.
 type OrderRepository struct {
-	pool *Pool
+	pool   *Pool
+	outbox *OutboxRepository
 }
 
 // NewOrderRepository returns an OrderRepository bound to the pool.
-func NewOrderRepository(pool *Pool) *OrderRepository {
-	return &OrderRepository{pool: pool}
+func NewOrderRepository(pool *Pool, outbox *OutboxRepository) *OrderRepository {
+	return &OrderRepository{pool: pool, outbox: outbox}
 }
 
-// Create stores a new order and its pending payment in one transaction.
-func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain.Payment) error {
+// Create stores a new order, it's pending payment and the order.paid
+// outbox event in one transaction.
+func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain.Payment, ticketIDs []string) error {
 	tx, err := r.pool.p.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -50,6 +54,19 @@ func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain
 		p.ID, p.OrderID, string(p.Status), p.Amount.Amount, p.Amount.Currency,
 		p.GatewayRef, p.CreatedAt); err != nil {
 		return fmt.Errorf("insert payment: %w", err)
+	}
+
+	// order.paid goes to the outbox INSIDE this transaction —
+	// either both (order + event) are stored, or neither.
+	event := domain.OrderPaidEvent{
+		OrderID:   o.ID,
+		UserID:    o.UserID,
+		Total:     o.Total,
+		TicketIDs: ticketIDs,
+		At:        time.Now().UTC(),
+	}
+	if err := r.outbox.Insert(ctx, tx, event); err != nil {
+		return fmt.Errorf("insert outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -166,3 +183,6 @@ func (r *OrderRepository) PaymentIDByOrder(ctx context.Context, orderID string) 
 	}
 	return id, nil
 }
+
+// marshalEvent is a helper kept close to outbox usage (json tags = field names).
+var _ = json.Marshal // keep json import if unused elsewhere

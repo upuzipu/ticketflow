@@ -78,7 +78,8 @@ func TestOrderSaga(t *testing.T) {
 
 	t.Run("success path finalizes inventory", func(t *testing.T) {
 		invent, holds, catID := sagaFixture(t, ctx, pool, 2)
-		orders := postgres.NewOrderRepository(pool)
+		outbox := postgres.NewOutboxRepository(pool)
+		orders := postgres.NewOrderRepository(pool, outbox)
 		holdID := reserve(t, ctx, invent, user.ID, catID, 2)
 
 		gw := stubGateway{outcome: func(string) (string, error) { return "ch_ok", nil }}
@@ -128,7 +129,8 @@ func TestOrderSaga(t *testing.T) {
 
 	t.Run("decline compensates and releases tickets", func(t *testing.T) {
 		invent, holds, catID := sagaFixture(t, ctx, pool, 2)
-		orders := postgres.NewOrderRepository(pool)
+		outbox := postgres.NewOutboxRepository(pool)
+		orders := postgres.NewOrderRepository(pool, outbox)
 		holdID := reserve(t, ctx, invent, user.ID, catID, 2)
 
 		gw := stubGateway{outcome: func(string) (string, error) {
@@ -171,7 +173,8 @@ func TestOrderSaga(t *testing.T) {
 
 	t.Run("timeout leaves everything pending", func(t *testing.T) {
 		invent, holds, catID := sagaFixture(t, ctx, pool, 1)
-		orders := postgres.NewOrderRepository(pool)
+		outbox := postgres.NewOutboxRepository(pool)
+		orders := postgres.NewOrderRepository(pool, outbox)
 		holdID := reserve(t, ctx, invent, user.ID, catID, 1)
 
 		gw := stubGateway{outcome: func(string) (string, error) {
@@ -214,7 +217,8 @@ func TestOrderSaga(t *testing.T) {
 
 	t.Run("idempotent replay returns same order", func(t *testing.T) {
 		invent, holds, catID := sagaFixture(t, ctx, pool, 1)
-		orders := postgres.NewOrderRepository(pool)
+		outbox := postgres.NewOutboxRepository(pool)
+		orders := postgres.NewOrderRepository(pool, outbox)
 		holdID := reserve(t, ctx, invent, user.ID, catID, 1)
 
 		gw := stubGateway{outcome: func(string) (string, error) { return "ch_ok", nil }}

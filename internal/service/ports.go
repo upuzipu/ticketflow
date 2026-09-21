@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
-	"github.com/upuzipu/ticketflow/internal/repository/postgres"
 )
 
 // UserRepository persists and retrieves users.
@@ -26,8 +25,18 @@ type UserRepository interface {
 	ByID(ctx context.Context, id string) (*domain.User, error)
 }
 
+// PasswordHasher hashes and verifies passwords.
+type PasswordHasher interface {
+	// Hash hashes a plain-text password.
+	Hash(password string) (string, error)
+
+	// Verify reports whether the password matches the stored hash.
+	Verify(hash, password string) bool
+}
+
 // TokenIssuer creates and verifies token pairs for authentication.
 type TokenIssuer interface {
+	// IssuePair returns a fresh access/refresh token pair for the user.
 	IssuePair(u *domain.User) (access, refresh string, err error)
 
 	// ParseAccess validates an access token and returns the user ID and role.
@@ -41,13 +50,16 @@ type TokenIssuer interface {
 	ParseRefresh(token string) (jti, userID string, expiresAt time.Time, err error)
 }
 
-// PasswordHasher hashes and verifies passwords.
-type PasswordHasher interface {
-	// Hash hashes a plain-text password.
-	Hash(password string) (string, error)
+// RefreshTokenStore persists refresh token identities for rotation and revocation.
+type RefreshTokenStore interface {
+	// Create stores a new refresh token identity.
+	Create(ctx context.Context, jti, userID string, expiresAt time.Time) error
 
-	// Verify reports whether the password matches the stored hash.
-	Verify(hash, password string) bool
+	// Active reports whether the jti exists, is not revoked and not expired.
+	Active(ctx context.Context, jti string) (bool, error)
+
+	// Revoke marks the token identity as revoked. Idempotent.
+	Revoke(ctx context.Context, jti string) error
 }
 
 // EventRepository persists and retrieves events.
@@ -70,13 +82,6 @@ type EventRepository interface {
 	UpdateStatus(ctx context.Context, id string, status domain.EventStatus) error
 }
 
-// AvailabilityReader provides per-category ticket stats for an event.
-type AvailabilityReader interface {
-	// Availability returns per-category counters for the event.
-	// If the event does not exist, it returns an error matching domain.ErrNotFound.
-	Availability(ctx context.Context, eventID string) ([]postgres.CategoryAvailability, error)
-}
-
 // EventStats provides per-category ticket counters for an event.
 type EventStats interface {
 	// Availability returns per-category counters for the event.
@@ -87,8 +92,13 @@ type EventStats interface {
 
 // HoldRepository persists and retrieves ticket holds.
 type HoldRepository interface {
+	// Create stores a new hold with its captured ticket IDs.
 	Create(ctx context.Context, h *domain.Hold) error
+
+	// ByID returns the hold by ID.
+	// If no such hold exists, it returns an error matching domain.ErrNotFound.
 	ByID(ctx context.Context, id string) (*domain.Hold, error)
+
 	// ExpiredActive returns active holds whose ExpiresAt is before now.
 	ExpiredActive(ctx context.Context, now time.Time) ([]*domain.Hold, error)
 }
@@ -108,15 +118,15 @@ type Inventory interface {
 	// Idempotent: releasing an unknown or already released hold is a no-op (nil).
 	Release(ctx context.Context, holdID string) error
 
-	// CategoryPrice returns the price of the category.
-	// If the category does not exist, it returns an error matching domain.ErrNotFound.
-	CategoryPrice(ctx context.Context, categoryID string) (domain.Money, error)
-
 	// ConfirmHold finalizes a paid hold: its tickets become sold and the
 	// hold is marked confirmed.
 	// If the hold does not exist, it returns an error matching domain.ErrNotFound.
 	// Idempotent: confirming a non-active hold is a no-op.
 	ConfirmHold(ctx context.Context, holdID string) error
+
+	// CategoryPrice returns the price of the category.
+	// If the category does not exist, it returns an error matching domain.ErrNotFound.
+	CategoryPrice(ctx context.Context, categoryID string) (domain.Money, error)
 
 	// TicketsByHold returns the current statuses of the hold's tickets.
 	TicketsByHold(ctx context.Context, holdID string) (map[string]domain.TicketStatus, error)
@@ -124,9 +134,9 @@ type Inventory interface {
 
 // OrderRepository persists and retrieves orders and payments.
 type OrderRepository interface {
-	// Create stores a new order with a pending payment record
-	// in one transaction.
-	Create(ctx context.Context, o *domain.Order, p *domain.Payment) error
+	// Create stores a new order with a pending payment record and the
+	// order.paid outbox event in one transaction.
+	Create(ctx context.Context, o *domain.Order, p *domain.Payment, ticketIDs []string) error
 
 	// ByID returns the order by ID.
 	// If no such order exists, it returns an error matching domain.ErrNotFound.
@@ -146,16 +156,4 @@ type OrderRepository interface {
 
 	// PaymentIDByOrder returns the payment record ID for the order.
 	PaymentIDByOrder(ctx context.Context, orderID string) (string, error)
-}
-
-// RefreshTokenStore persists refresh token identities for rotation and revocation.
-type RefreshTokenStore interface {
-	// Create stores a new refresh token identity.
-	Create(ctx context.Context, jti, userID string, expiresAt time.Time) error
-
-	// Active reports whether the jti exists, is not revoked and not expired.
-	Active(ctx context.Context, jti string) (bool, error)
-
-	// Revoke marks the token identity as revoked. Idempotent.
-	Revoke(ctx context.Context, jti string) error
 }
