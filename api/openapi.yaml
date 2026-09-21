@@ -1,0 +1,57 @@
+openapi: 3.0.3
+info:
+  title: TicketFlow API
+  version: 1.0.0
+  description: Ticket sales — auth, events, holds, orders, real-time availability.
+servers:
+  - url: http://localhost:8080
+paths:
+  /auth/register:
+    post:
+      summary: Register a buyer or organizer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password, role]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string, minLength: 8 }
+                role:     { type: string, enum: [buyer, organizer] }
+      responses:
+        '201': { description: User created }
+        '409': { description: Email already taken }
+        '403': { description: Role not allowed }
+        '422': { description: Validation failed }
+  /events/{id}/availability:
+    get:
+      summary: Per-category ticket counters
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Counters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  event_id:  { type: string, format: uuid }
+                  categories:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        CategoryID: { type: string }
+                        Name:       { type: string }
+                        Price:      { type: object, properties: { Amount: {type: integer}, Currency: {type: string} } }
+                        TotalQty:   { type: integer }
+                        Available:  { type: integer }
+                        Held:       { type: integer }
+                        Sold:       { type: integer }
+        '404': { description: Event not found }
