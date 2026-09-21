@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -196,4 +198,103 @@ func (r *OrderRepository) MarkPaidWithEvent(ctx context.Context, orderID string,
 		return fmt.Errorf("insert outbox event: %w", err)
 	}
 	return tx.Commit(ctx)
+}
+
+// ByHoldID returns the paid or confirmed order created from the hold.
+func (r *OrderRepository) ByHoldID(ctx context.Context, holdID string) (*domain.Order, error) {
+	const sql = `
+        SELECT id, user_id, event_id, hold_id, status, total_minor, currency,
+               idempotency_key, version, created_at, updated_at
+          FROM orders
+         WHERE hold_id = $1 AND status IN ('paid', 'confirmed')`
+
+	var (
+		o          domain.Order
+		status     string
+		totalMinor int64
+		currency   string
+	)
+	err := r.pool.p.QueryRow(ctx, sql, holdID).
+		Scan(&o.ID, &o.UserID, &o.EventID, &o.HoldID, &status, &totalMinor,
+			&currency, &o.IdempotencyKey, &o.Version, &o.CreatedAt, &o.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("query order by hold: %w", err)
+	}
+	o.Status = domain.OrderStatus(status)
+	o.Total = domain.Money{Amount: totalMinor, Currency: currency}
+	return &o, nil
+}
+
+// ListMine returns the user's orders, newest first, keyset pagination.
+func (r *OrderRepository) ListMine(ctx context.Context, userID string, limit int, cursor string) ([]domain.Order, string, error) {
+	var afterAt time.Time
+	var afterID string
+	if cursor != "" {
+		parts := strings.Split(cursor, "|")
+		if len(parts) != 2 {
+			return nil, "", fmt.Errorf("%w: bad cursor", domain.ErrValidation)
+		}
+		t, err := time.Parse(time.RFC3339, parts[0])
+		if err != nil {
+			return nil, "", fmt.Errorf("%w: bad cursor", domain.ErrValidation)
+		}
+		afterAt = t
+		afterID = parts[1]
+	}
+
+	const base = `
+        SELECT id, user_id, event_id, hold_id, status, total_minor, currency,
+               idempotency_key, version, created_at, updated_at
+          FROM orders
+         WHERE user_id = $1`
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+	if cursor == "" {
+		rows, err = r.pool.p.Query(ctx, base+`
+           ORDER BY created_at DESC, id DESC
+           LIMIT $2`, userID, limit)
+	} else {
+		rows, err = r.pool.p.Query(ctx, base+`
+           AND (created_at < $2 OR (created_at = $2 AND id < $3))
+           ORDER BY created_at DESC, id DESC
+           LIMIT $4`, userID, afterAt, afterID, limit)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("query orders: %w", err)
+	}
+	defer rows.Close()
+
+	orders := make([]domain.Order, 0, limit)
+	for rows.Next() {
+		var (
+			o          domain.Order
+			status     string
+			totalMinor int64
+			currency   string
+		)
+		if err := rows.Scan(&o.ID, &o.UserID, &o.EventID, &o.HoldID, &status,
+			&totalMinor, &currency, &o.IdempotencyKey, &o.Version,
+			&o.CreatedAt, &o.UpdatedAt); err != nil {
+			return nil, "", fmt.Errorf("scan order: %w", err)
+		}
+		o.Status = domain.OrderStatus(status)
+		o.Total = domain.Money{Amount: totalMinor, Currency: currency}
+		orders = append(orders, o)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate orders: %w", err)
+	}
+
+	if len(orders) == limit {
+		last := orders[len(orders)-1]
+		next := last.CreatedAt.Format(time.RFC3339) + "|" + last.ID
+		return orders, next, nil
+	}
+	return orders, "", nil
 }

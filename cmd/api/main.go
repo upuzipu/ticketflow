@@ -77,16 +77,18 @@ func run() error {
 	hub := realtime.NewHub()
 	broadcaster := realtime.NewRedisBroadcaster(redisClient.Raw(), hub, eventsRepo.Availability, log)
 
-	// --- holds ---
+	// --- holds (before orders: order service needs holdsRepo & inventory) ---
 	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
-	holdService := service.NewHoldService(holdsRepo, inventory, availCache, broadcaster)
 
 	// --- orders ---
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	ordersRepo := postgres.NewOrderRepository(pool, outboxRepo)
 	gateway := mock.NewGateway(300 * time.Millisecond)
 	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway, availCache, broadcaster)
+
+	// --- holds service (needs ordersRepo for order_id lookup) ---
+	holdService := service.NewHoldService(holdsRepo, inventory, availCache, broadcaster, ordersRepo)
 
 	// --- kafka producer ---
 	producer, err := kafka.NewProducer(ctx, []string{"localhost:9092"}, log)

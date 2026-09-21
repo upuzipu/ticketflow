@@ -73,7 +73,8 @@ func NewServer(
 
 	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
 	mux.HandleFunc("GET /events/{id}", events.GetByID)
-
+	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
+	mux.Handle("GET /orders/mine", middleware.Auth(tokens)(http.HandlerFunc(orders.ListMine)))
 
 	return &Server{
 		srv: &http.Server{

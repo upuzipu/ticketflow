@@ -2,10 +2,7 @@
 package realtime
 
 import (
-	"encoding/json"
 	"sync"
-
-	"github.com/upuzipu/ticketflow/internal/domain"
 )
 
 // Hub keeps WebSocket subscribers grouped by event ID
@@ -22,9 +19,9 @@ func NewHub() *Hub {
 
 // Subscriber is one connected client.
 type Subscriber struct {
-	ID      string // уникальный id для логов
+	ID      string
 	EventID string
-	Ch      chan []byte // outbound messages; writer goroutine reads it
+	Ch      chan []byte
 }
 
 // Subscribe registers a subscriber in the event's room.
@@ -50,18 +47,9 @@ func (h *Hub) Unsubscribe(s *Subscriber) {
 	close(s.Ch)
 }
 
-// BroadcastAvailability sends the update to everyone subscribed
-// to the event. Slow subscribers are dropped (buffer full → skip).
-func (h *Hub) BroadcastAvailability(eventID string, stats []domain.CategoryAvailability) {
-	payload, err := json.Marshal(map[string]any{
-		"type":       "availability",
-		"event_id":   eventID,
-		"categories": stats,
-	})
-	if err != nil {
-		return
-	}
-
+// BroadcastRaw sends the pre-encoded payload to every subscriber
+// of the event. Slow subscribers are dropped, never blocking the hub.
+func (h *Hub) BroadcastRaw(eventID string, payload []byte) {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	for s := range h.rooms[eventID] {

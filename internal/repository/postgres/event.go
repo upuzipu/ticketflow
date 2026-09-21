@@ -52,7 +52,6 @@ func (r *EventRepository) Create(ctx context.Context, e *domain.Event) error {
 			catID, e.ID, c.Name, c.Price.Amount, c.Price.Currency, c.TotalQty); err != nil {
 			return fmt.Errorf("insert category %q: %w", c.Name, err)
 		}
-
 		if _, err := tx.Exec(ctx, ticketsSQL, e.ID, catID, c.TotalQty); err != nil {
 			return fmt.Errorf("insert tickets for category %q: %w", c.Name, err)
 		}
@@ -64,7 +63,7 @@ func (r *EventRepository) Create(ctx context.Context, e *domain.Event) error {
 	return nil
 }
 
-// ByID returns the event by ID.
+// ByID returns the event by ID together with its categories.
 func (r *EventRepository) ByID(ctx context.Context, id string) (*domain.Event, error) {
 	const sql = `
         SELECT id, organizer_id, title, description, starts_at, status
@@ -72,31 +71,51 @@ func (r *EventRepository) ByID(ctx context.Context, id string) (*domain.Event, e
          WHERE id = $1`
 
 	var (
-		eid         string
-		organizerID string
-		title       string
-		description string
-		startsAt    time.Time
-		status      string
+		e      domain.Event
+		status string
 	)
 
 	err := r.pool.p.QueryRow(ctx, sql, id).
-		Scan(&eid, &organizerID, &title, &description, &startsAt, &status)
+		Scan(&e.ID, &e.OrganizerID, &e.Title, &e.Description, &e.StartsAt, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
 	}
 	if err != nil {
 		return nil, fmt.Errorf("query event by id: %w", err)
 	}
+	e.Status = domain.EventStatus(status)
 
-	return &domain.Event{
-		ID:          eid,
-		OrganizerID: organizerID,
-		Title:       title,
-		Description: description,
-		StartsAt:    startsAt,
-		Status:      domain.EventStatus(status),
-	}, nil
+	const catSQL = `
+        SELECT id, name, price_minor, currency, total_qty
+          FROM ticket_categories
+         WHERE event_id = $1
+         ORDER BY name`
+
+	catRows, err := r.pool.p.Query(ctx, catSQL, e.ID)
+	if err != nil {
+		return nil, fmt.Errorf("query event categories: %w", err)
+	}
+	defer catRows.Close()
+
+	e.Categories = make([]domain.TicketCategory, 0)
+	for catRows.Next() {
+		var (
+			c        domain.TicketCategory
+			amount   int64
+			currency string
+		)
+		if err := catRows.Scan(&c.ID, &c.Name, &amount, &currency, &c.TotalQty); err != nil {
+			return nil, fmt.Errorf("scan category: %w", err)
+		}
+		c.EventID = e.ID
+		c.Price = domain.Money{Amount: amount, Currency: currency}
+		e.Categories = append(e.Categories, c)
+	}
+	if err := catRows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate categories: %w", err)
+	}
+
+	return &e, nil
 }
 
 // UpdateStatus persists a status transition.
@@ -181,6 +200,72 @@ func (r *EventRepository) List(ctx context.Context, f domain.EventFilter) ([]dom
 	return events, "", nil
 }
 
+// ListByOrganizer returns ALL events of the organizer (any status)
+// with keyset pagination.
+func (r *EventRepository) ListByOrganizer(ctx context.Context, organizerID string, limit int, cursor string) ([]domain.Event, string, error) {
+	const base = `
+        SELECT id, organizer_id, title, description, starts_at, status
+          FROM events
+         WHERE organizer_id = $1`
+
+	var (
+		rows pgx.Rows
+		err  error
+	)
+
+	if cursor == "" {
+		rows, err = r.pool.p.Query(ctx, base+`
+             ORDER BY starts_at, id
+             LIMIT $2`, organizerID, limit)
+	} else {
+		afterAt, afterID, perr := parseCursor(cursor)
+		if perr != nil {
+			return nil, "", perr
+		}
+		rows, err = r.pool.p.Query(ctx, base+`
+           AND (starts_at > $2 OR (starts_at = $2 AND id > $3))
+           ORDER BY starts_at, id
+           LIMIT $4`, organizerID, afterAt, afterID, limit)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("query organizer events: %w", err)
+	}
+	defer rows.Close()
+
+	events := make([]domain.Event, 0, limit)
+	for rows.Next() {
+		var (
+			eid         string
+			orgID       string
+			title       string
+			description string
+			startsAt    time.Time
+			status      string
+		)
+		if err := rows.Scan(&eid, &orgID, &title, &description, &startsAt, &status); err != nil {
+			return nil, "", fmt.Errorf("scan event: %w", err)
+		}
+		events = append(events, domain.Event{
+			ID:          eid,
+			OrganizerID: orgID,
+			Title:       title,
+			Description: description,
+			StartsAt:    startsAt,
+			Status:      domain.EventStatus(status),
+		})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", fmt.Errorf("iterate organizer events: %w", err)
+	}
+
+	if len(events) == limit {
+		last := events[len(events)-1]
+		next := last.StartsAt.Format(time.RFC3339) + "|" + last.ID
+		return events, next, nil
+	}
+	return events, "", nil
+}
+
 func parseCursor(cursor string) (time.Time, string, error) {
 	parts := strings.Split(cursor, "|")
 	if len(parts) != 2 {
@@ -193,18 +278,8 @@ func parseCursor(cursor string) (time.Time, string, error) {
 	return t, parts[1], nil
 }
 
-// CategoryAvailability is a per-category ticket counter.
-type CategoryAvailability struct {
-	CategoryID string
-	Name       string
-	Price      domain.Money
-	TotalQty   int
-	Available  int
-	Held       int
-	Sold       int
-}
-
-// Availability returns per-category ticket stats for the event.
+// Availability returns per-category ticket counters for the event.
+// Implements service.EventStats.
 func (r *EventRepository) Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error) {
 	const sql = `
         SELECT c.id, c.name, c.price_minor, c.currency, c.total_qty,

@@ -3,11 +3,13 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 
 	"github.com/google/uuid"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
 	"github.com/upuzipu/ticketflow/internal/service"
+	"github.com/upuzipu/ticketflow/internal/transport/http/dto"
 	"github.com/upuzipu/ticketflow/internal/transport/http/middleware"
 	"github.com/upuzipu/ticketflow/internal/transport/httpx"
 )
@@ -48,19 +50,39 @@ func (h *OrderHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	status := http.StatusCreated
 	if !created {
-		status = http.StatusOK // idempotent replay: existing order returned
+		status = http.StatusOK
 	}
 
-	httpx.RespondJSON(w, status, map[string]any{
-		"id":          o.ID,
-		"status":      string(o.Status),
-		"total_minor": o.Total.Amount,
-		"currency":    o.Total.Currency,
-		"created":     created,
+	out := dto.OrderFromDomain(o)
+	out.Created = created
+	httpx.RespondJSON(w, status, out)
+}
+
+// ListMine handles GET /orders/mine.
+func (h *OrderHandler) ListMine(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		httpx.RespondError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	actor := &domain.User{ID: user.ID, Role: domain.Role(user.Role)}
+	orders, next, err := h.svc.ListMine(r.Context(), actor, limit, q.Get("cursor"))
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, map[string]any{
+		"orders":      dto.OrdersFromDomain(orders),
+		"next_cursor": next,
 	})
 }
 
-// Pay handles POST /orders/{id}/pay — charges the card and finishes the saga.
+// Pay handles POST /orders/{id}/pay.
 func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -81,13 +103,10 @@ func (h *OrderHandler) Pay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.RespondJSON(w, http.StatusOK, map[string]any{
-		"id":     o.ID,
-		"status": string(o.Status),
-	})
+	httpx.RespondJSON(w, http.StatusOK, dto.OrderFromDomain(o))
 }
 
-// ByID handles GET /orders/{id} — the owner sees the order.
+// ByID handles GET /orders/{id}.
 func (h *OrderHandler) ByID(w http.ResponseWriter, r *http.Request) {
 	user, ok := middleware.UserFromContext(r.Context())
 	if !ok {
@@ -108,12 +127,5 @@ func (h *OrderHandler) ByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.RespondJSON(w, http.StatusOK, map[string]any{
-		"id":          o.ID,
-		"status":      string(o.Status),
-		"total_minor": o.Total.Amount,
-		"currency":    o.Total.Currency,
-		"hold_id":     o.HoldID,
-		"created_at":  o.CreatedAt.Format("2006-01-02T15:04:05Z"),
-	})
+	httpx.RespondJSON(w, http.StatusOK, dto.OrderFromDomain(o))
 }

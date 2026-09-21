@@ -217,3 +217,14 @@ func (s *OrderService) ByID(ctx context.Context, user *domain.User, orderID stri
 	}
 	return o, nil
 }
+
+// ListMine returns the user's orders, newest first.
+func (s *OrderService) ListMine(ctx context.Context, user *domain.User, limit int, cursor string) ([]domain.Order, string, error) {
+	if user == nil || user.ID == "" {
+		return nil, "", fmt.Errorf("%w: authentication required", domain.ErrUnauthorized)
+	}
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return s.orders.ListMine(ctx, user.ID, limit, cursor)
+}

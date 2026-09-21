@@ -71,17 +71,21 @@ func (s *EventService) Create(ctx context.Context, organizer *domain.User, title
 	return event, nil
 }
 
-// ByID returns a published event with its categories.
-// Drafts and cancelled events are not exposed publicly (404).
-func (s *EventService) ByID(ctx context.Context, eventID string) (*domain.Event, error) {
+// ByID returns the event with its categories.
+// Non-published events are visible only to their owner (or admin);
+// everyone else receives ErrNotFound so drafts' existence is not revealed.
+func (s *EventService) ByID(ctx context.Context, viewer *domain.User, eventID string) (*domain.Event, error) {
 	e, err := s.events.ByID(ctx, eventID)
 	if err != nil {
 		return nil, err
 	}
-	if e.Status != domain.EventPublished {
-		return nil, domain.ErrNotFound // don't reveal drafts existence
+	if e.Status == domain.EventPublished {
+		return e, nil
 	}
-	return e, nil
+	if viewer != nil && viewer.CanManageEvent(e.OrganizerID) {
+		return e, nil
+	}
+	return nil, domain.ErrNotFound
 }
 
 // Publish transitions the event to published after ownership and FSM checks.
@@ -128,6 +132,14 @@ func (s *EventService) List(ctx context.Context, f domain.EventFilter) ([]domain
 	return s.events.List(ctx, f)
 }
 
+// ListMine returns ALL events of the organizer (any status).
+func (s *EventService) ListMine(ctx context.Context, organizerID string, limit int, cursor string) ([]domain.Event, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	return s.events.ListByOrganizer(ctx, organizerID, limit, cursor)
+}
+
 // Availability returns per-category ticket counters for the event.
 // Cached: read-through with invalidation on every inventory change.
 func (s *EventService) Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error) {
@@ -146,9 +158,7 @@ func (s *EventService) Availability(ctx context.Context, eventID string) ([]doma
 	}
 
 	if s.cache != nil {
-		if err := s.cache.Set(ctx, eventID, stats, 10*time.Second); err != nil {
-			// best effort: serve the fresh DB data even if caching failed
-		}
+		_ = s.cache.Set(ctx, eventID, stats, 10*time.Second) // best effort
 	}
 	return stats, nil
 }

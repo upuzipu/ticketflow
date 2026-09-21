@@ -10,6 +10,7 @@ import (
 
 	"github.com/upuzipu/ticketflow/internal/domain"
 	"github.com/upuzipu/ticketflow/internal/service"
+	"github.com/upuzipu/ticketflow/internal/transport/http/dto"
 	"github.com/upuzipu/ticketflow/internal/transport/http/middleware"
 	"github.com/upuzipu/ticketflow/internal/transport/httpx"
 )
@@ -71,12 +72,30 @@ func (h *EventHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.RespondJSON(w, http.StatusCreated, map[string]any{
-		"id":        e.ID,
-		"title":     e.Title,
-		"starts_at": e.StartsAt.Format(time.RFC3339),
-		"status":    string(e.Status),
-	})
+	httpx.RespondJSON(w, http.StatusCreated, dto.EventFromDomain(e))
+}
+
+// GetByID handles GET /events/{id}.
+// The owner sees own drafts; everyone else sees published events only.
+func (h *EventHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if _, err := uuid.Parse(eventID); err != nil {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	var viewer *domain.User
+	if user, ok := middleware.UserFromContext(r.Context()); ok {
+		viewer = &domain.User{ID: user.ID, Role: domain.Role(user.Role)}
+	}
+
+	e, err := h.svc.ByID(r.Context(), viewer, eventID)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, dto.EventFromDomain(e))
 }
 
 // Publish handles POST /events/{id}/publish.
@@ -102,10 +121,15 @@ func (h *EventHandler) Publish(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// List handles GET /events.
+// List handles GET /events. mine=true returns all events of the caller.
 func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit")) // 0 → default in service
+	limit, _ := strconv.Atoi(q.Get("limit"))
+
+	if q.Get("mine") == "true" {
+		h.listMine(w, r, limit, q.Get("cursor"))
+		return
+	}
 
 	f := domain.EventFilter{Limit: limit, Cursor: q.Get("cursor")}
 
@@ -116,7 +140,32 @@ func (h *EventHandler) List(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpx.RespondJSON(w, http.StatusOK, map[string]any{
-		"events":      events,
+		"events":      dto.EventsFromDomain(events),
+		"next_cursor": next,
+	})
+}
+
+func (h *EventHandler) listMine(w http.ResponseWriter, r *http.Request, limit int, cursor string) {
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		httpx.RespondError(w, domain.ErrForbidden)
+		return
+	}
+
+	actor := &domain.User{ID: user.ID, Role: domain.Role(user.Role)}
+	if !actor.CanCreateEvents() {
+		httpx.RespondError(w, domain.ErrForbidden)
+		return
+	}
+
+	events, next, err := h.svc.ListMine(r.Context(), actor.ID, limit, cursor)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, map[string]any{
+		"events":      dto.EventsFromDomain(events),
 		"next_cursor": next,
 	})
 }
@@ -135,25 +184,5 @@ func (h *EventHandler) Availability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpx.RespondJSON(w, http.StatusOK, map[string]any{
-		"event_id":   eventID,
-		"categories": stats,
-	})
-}
-
-// GetByID handles GET /events/{id} — published event with categories.
-func (h *EventHandler) GetByID(w http.ResponseWriter, r *http.Request) {
-	eventID := r.PathValue("id")
-	if _, err := uuid.Parse(eventID); err != nil {
-		httpx.RespondError(w, domain.ErrValidation)
-		return
-	}
-
-	e, err := h.svc.ByID(r.Context(), eventID)
-	if err != nil {
-		httpx.RespondError(w, err)
-		return
-	}
-
-	httpx.RespondJSON(w, http.StatusOK, e)
+	httpx.RespondJSON(w, http.StatusOK, dto.AvailabilityFromDomain(eventID, stats))
 }
