@@ -3,6 +3,7 @@ package middleware
 import (
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,17 +13,19 @@ import (
 )
 
 // RateLimit returns a middleware enforcing a per-IP limit
-// on the wrapped routes.
+// on the wrapped routes. 429 responses carry Retry-After.
 func RateLimit(limiter *redis.RateLimiter, limit int, window time.Duration) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := clientIP(r)
-			ok, err := limiter.Allow(r.Context(), ip, limit, window)
+			ok, retryAfter, err := limiter.Allow(r.Context(), ip, limit, window)
 			if err != nil {
+				// Redis down → fail open
 				next.ServeHTTP(w, r)
 				return
 			}
 			if !ok {
+				w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
 				httpx.RespondError(w, domain.ErrRateLimited) // 429
 				return
 			}

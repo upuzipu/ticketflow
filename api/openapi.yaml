@@ -521,10 +521,13 @@ paths:
       tags: [system]
       summary: WebSocket availability stream for the event
       description: >
-        Upgrade to WebSocket. Server sends availability snapshots
-        ({"type":"availability","event_id":…,"server_time":…,"categories":[…]})
-        on every inventory change and an initial snapshot on connect.
-        Server sends a ping frame every 20 s to keep proxies alive.
+        Upgrade to WebSocket. Contract: on EVERY connect (including reconnect)
+        the server immediately sends one full availability snapshot frame,
+        then a new full snapshot on every inventory change.
+        Frame: {"type":"availability","event_id":…,"server_time":…,
+        "categories":[…]} with snake_case fields.
+        Server sends a protocol-level ping every 20 s; automatic browser
+        pongs count as liveness. No client heartbeat required.
         Without the Upgrade header the endpoint responds 501.
       parameters:
         - name: id

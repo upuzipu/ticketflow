@@ -10,7 +10,6 @@ import (
 
 // ratelimitScript: sliding window.
 // KEYS[1] — counter key; ARGV[1]=now(ms), ARGV[2]=window(ms), ARGV[3]=limit.
-// Removes stale entries, counts fresh ones, adds current if allowed.
 var ratelimitScript = redis.NewScript(`
     local key    = KEYS[1]
     local now    = tonumber(ARGV[1])
@@ -38,12 +37,17 @@ func NewRateLimiter(c *Client) *RateLimiter {
 }
 
 // Allow reports whether one more request from the key is allowed
-// within the window.
-func (l *RateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (bool, error) {
+// within the window. When not allowed, it also returns the estimated
+// seconds until the window frees up (for the Retry-After header).
+func (l *RateLimiter) Allow(ctx context.Context, key string, limit int, window time.Duration) (allowed bool, retryAfterSec int, err error) {
 	res, err := ratelimitScript.Run(ctx, l.c.c, []string{"rl:" + key},
 		time.Now().UnixMilli(), window.Milliseconds(), limit).Int()
 	if err != nil {
-		return false, fmt.Errorf("rate limit: %w", err)
+		return false, 0, fmt.Errorf("rate limit: %w", err)
 	}
-	return res == 1, nil
+	if res == 1 {
+		return true, 0, nil
+	}
+	// window not freed yet: upper estimate of wait time
+	return false, int(window.Seconds()) + 1, nil
 }
