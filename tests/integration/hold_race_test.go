@@ -77,7 +77,7 @@ func TestHoldRace_LastTicket(t *testing.T) {
 			defer wg.Done()
 
 			holdID := uuid.NewString()
-			_, err := inventory.Reserve(ctx, holdID, uuid.NewString(), categoryID, 1,
+			_, _, err := inventory.Reserve(ctx, holdID, uuid.NewString(), categoryID, 1,
 				time.Now().Add(10*time.Minute).UTC())
 			switch {
 			case err == nil:

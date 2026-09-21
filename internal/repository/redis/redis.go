@@ -28,3 +28,6 @@ func NewClient(ctx context.Context, addr string) (*Client, error) {
 func (c *Client) Close() {
 	c.c.Close()
 }
+
+// Raw exposes the underlying go-redis client (for pub/sub subscribers).
+func (c *Client) Raw() *redis.Client { return c.c }

@@ -110,10 +110,10 @@ func NewInventory(pool *Pool) *Inventory {
 
 // Reserve atomically captures qty available tickets of the category
 // and creates the hold record in the same transaction.
-func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, categoryID string, qty int, expiresAt time.Time) ([]string, error) {
+func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, categoryID string, qty int, expiresAt time.Time) ([]string, string, error) {
 	tx, err := i.pool.p.Begin(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("begin tx: %w", err)
+		return nil, "", fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -122,9 +122,9 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 	var eventID string
 	if err := tx.QueryRow(ctx, eventSQL, categoryID).Scan(&eventID); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, domain.ErrNotFound
+			return nil, "", domain.ErrNotFound
 		}
-		return nil, fmt.Errorf("find event by category: %w", err)
+		return nil, "", fmt.Errorf("find event by category: %w", err)
 	}
 
 	const pickSQL = `
@@ -136,24 +136,24 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 
 	rows, err := tx.Query(ctx, pickSQL, categoryID, qty)
 	if err != nil {
-		return nil, fmt.Errorf("pick tickets: %w", err)
+		return nil, "", fmt.Errorf("pick tickets: %w", err)
 	}
 	ids := make([]string, 0, qty)
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
 			rows.Close()
-			return nil, fmt.Errorf("scan ticket id: %w", err)
+			return nil, "", fmt.Errorf("scan ticket id: %w", err)
 		}
 		ids = append(ids, id)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate tickets: %w", err)
+		return nil, "", fmt.Errorf("iterate tickets: %w", err)
 	}
 
 	if len(ids) < qty {
-		return nil, domain.ErrSoldOut
+		return nil, "", domain.ErrSoldOut
 	}
 
 	const holdSQL = `
@@ -162,7 +162,7 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
 	if _, err := tx.Exec(ctx, holdSQL,
 		holdID, userID, eventID, categoryID,
 		ids, string(domain.HoldActive), expiresAt, time.Now().UTC()); err != nil {
-		return nil, fmt.Errorf("insert hold: %w", err)
+		return nil, "", fmt.Errorf("insert hold: %w", err)
 	}
 
 	const updateSQL = `
@@ -171,16 +171,16 @@ func (i *Inventory) Reserve(ctx context.Context, holdID string, userID string, c
          WHERE id = ANY($1)`
 	tag, err := tx.Exec(ctx, updateSQL, ids, holdID)
 	if err != nil {
-		return nil, fmt.Errorf("hold tickets: %w", err)
+		return nil, "", fmt.Errorf("hold tickets: %w", err)
 	}
 	if tag.RowsAffected() != int64(len(ids)) {
-		return nil, fmt.Errorf("hold tickets: updated %d of %d", tag.RowsAffected(), len(ids))
+		return nil, "", fmt.Errorf("hold tickets: updated %d of %d", tag.RowsAffected(), len(ids))
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
+		return nil, "", fmt.Errorf("commit: %w", err)
 	}
-	return ids, nil
+	return ids, eventID, nil
 }
 
 // Release returns tickets captured by the hold to the available status.

@@ -19,15 +19,16 @@ const MaxHoldsPerUser = 5
 
 // HoldService manages ticket holds.
 type HoldService struct {
-	holds  HoldRepository
-	invent Inventory
-	cache  AvailabilityInvalidator // may be nil
+	holds    HoldRepository
+	invent   Inventory
+	cache    AvailabilityInvalidator
+	announce AvailabilityAnnouncer
 }
 
 // NewHoldService wires the service with its dependencies.
 // cache may be nil: then no cache invalidation happens.
-func NewHoldService(holds HoldRepository, invent Inventory, cache AvailabilityInvalidator) *HoldService {
-	return &HoldService{holds: holds, invent: invent, cache: cache}
+func NewHoldService(holds HoldRepository, invent Inventory, cache AvailabilityInvalidator, announce AvailabilityAnnouncer) *HoldService {
+	return &HoldService{holds: holds, invent: invent, cache: cache, announce: announce}
 }
 
 // Create reserves qty tickets of the category for the user.
@@ -47,9 +48,14 @@ func (s *HoldService) Create(ctx context.Context, user *domain.User, categoryID 
 	holdID := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(HoldTTL)
 
-	ticketIDs, err := s.invent.Reserve(ctx, holdID, user.ID, categoryID, qty, expiresAt)
+	ticketIDs, eventID, err := s.invent.Reserve(ctx, holdID, user.ID, categoryID, qty, expiresAt)
 	if err != nil {
-		return nil, err // ErrSoldOut / ErrNotFound / infra — как есть
+		return nil, err
+	}
+
+	// live-анонс: холд изменил остатки
+	if s.announce != nil {
+		_ = s.announce.PublishAvailability(ctx, eventID) // best effort
 	}
 
 	// cache invalidation is handled by OrderService/HoldService.Release paths
@@ -81,6 +87,9 @@ func (s *HoldService) Release(ctx context.Context, user *domain.User, holdID str
 	}
 	if s.cache != nil {
 		_ = s.cache.Invalidate(ctx, h.EventID)
+	}
+	if s.announce != nil {
+		_ = s.announce.PublishAvailability(ctx, h.EventID)
 	}
 	return nil
 }

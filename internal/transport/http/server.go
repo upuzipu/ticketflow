@@ -29,6 +29,7 @@ func NewServer(
 	events *handler.EventHandler,
 	holds *handler.HoldHandler,
 	orders *handler.OrderHandler,
+	realtime *handler.RealtimeHandler,
 	limiter *redis.RateLimiter,
 ) *Server {
 	mux := http.NewServeMux()
@@ -64,6 +65,11 @@ func NewServer(
 	mux.Handle("POST /orders/{id}/pay", middleware.Auth(tokens)(http.HandlerFunc(orders.Pay)))
 	mux.Handle("GET /orders/{id}", middleware.Auth(tokens)(http.HandlerFunc(orders.ByID)))
 
+	mux.HandleFunc("GET /ws/events/{id}", realtime.Subscribe)
+
+	mux.HandleFunc("GET /demo.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "deploy/demo.html")
+	})
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,

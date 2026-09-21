@@ -17,6 +17,7 @@ import (
 	"github.com/upuzipu/ticketflow/internal/payment/mock"
 	"github.com/upuzipu/ticketflow/internal/queue/consumer"
 	"github.com/upuzipu/ticketflow/internal/queue/kafka"
+	"github.com/upuzipu/ticketflow/internal/realtime"
 	"github.com/upuzipu/ticketflow/internal/repository/postgres"
 	redisrepo "github.com/upuzipu/ticketflow/internal/repository/redis"
 	"github.com/upuzipu/ticketflow/internal/service"
@@ -72,16 +73,20 @@ func run() error {
 	eventsRepo := postgres.NewEventRepository(pool)
 	eventService := service.NewEventService(eventsRepo, eventsRepo, availCache)
 
+	// --- realtime (WS) ---
+	hub := realtime.NewHub()
+	broadcaster := realtime.NewRedisBroadcaster(redisClient.Raw(), hub, eventsRepo.Availability, log)
+
 	// --- holds ---
 	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
-	holdService := service.NewHoldService(holdsRepo, inventory, availCache)
+	holdService := service.NewHoldService(holdsRepo, inventory, availCache, broadcaster)
 
 	// --- orders ---
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	ordersRepo := postgres.NewOrderRepository(pool, outboxRepo)
 	gateway := mock.NewGateway(300 * time.Millisecond)
-	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway, availCache)
+	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway, availCache, broadcaster)
 
 	// --- kafka producer ---
 	producer, err := kafka.NewProducer(ctx, []string{"localhost:9092"}, log)
@@ -109,12 +114,13 @@ func run() error {
 	eventHandler := handler.NewEventHandler(eventService)
 	holdHandler := handler.NewHoldHandler(holdService)
 	orderHandler := handler.NewOrderHandler(orderService)
+	realtimeHandler := handler.NewRealtimeHandler(hub, eventsRepo.Availability)
 
 	// --- workers ---
 	expirer := worker.NewHoldExpirer(inventory, holdsRepo, log)
 	relay := worker.NewOutboxRelay(outboxRepo, producer, log)
 
-	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler, orderHandler, limiter)
+	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler, orderHandler, realtimeHandler, limiter)
 
 	// --- run everything ---
 	g, gctx := errgroup.WithContext(ctx)
@@ -130,6 +136,9 @@ func run() error {
 	})
 	g.Go(func() error {
 		return ticketsConsumer.Run(gctx, ticketsIssuer.Handle)
+	})
+	g.Go(func() error {
+		return broadcaster.Run(gctx)
 	})
 	g.Go(func() error {
 		<-ctx.Done() // OS signal: Ctrl+C or SIGTERM

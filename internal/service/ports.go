@@ -108,11 +108,13 @@ type Inventory interface {
 	// Reserve atomically captures qty available tickets of the category
 	// and marks them held until expiresAt, associating them with holdID
 	// and userID.
+	// Returns the captured ticket IDs and the event ID the category
+	// belongs to.
 	// If fewer than qty tickets are available, it returns an error
 	// matching domain.ErrSoldOut.
 	// If the category does not exist, it returns an error matching
 	// domain.ErrNotFound.
-	Reserve(ctx context.Context, holdID string, userID string, categoryID string, qty int, expiresAt time.Time) ([]string, error)
+	Reserve(ctx context.Context, holdID string, userID string, categoryID string, qty int, expiresAt time.Time) (ticketIDs []string, eventID string, err error)
 
 	// Release returns tickets captured by the hold to the available status.
 	// Idempotent: releasing an unknown or already released hold is a no-op (nil).
@@ -187,4 +189,9 @@ type AvailabilityCache interface {
 // AvailabilityInvalidator drops cached availability after inventory changes.
 type AvailabilityInvalidator interface {
 	Invalidate(ctx context.Context, eventID string) error
+}
+
+// AvailabilityAnnouncer announces availability changes to real-time subscribers.
+type AvailabilityAnnouncer interface {
+	PublishAvailability(ctx context.Context, eventID string) error
 }

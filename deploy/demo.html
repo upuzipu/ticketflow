@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html><body>
+<h1>Event <span id="eid">?</span> availability</h1>
+<ul id="list">waiting...</ul>
+<script>
+    const eventID = new URLSearchParams(location.search).get("event_id");
+    document.getElementById("eid").textContent = eventID;
+    const ws = new WebSocket(`ws://localhost:8080/ws/events/${eventID}`);
+    ws.onmessage = (m) => {
+        const data = JSON.parse(m.data);
+        document.getElementById("list").innerHTML = data.categories
+            .map(c => `<li>${c.Name}: ${c.Available} available / ${c.Held} held / ${c.Sold} sold</li>`)
+            .join("");
+    };
+    ws.onclose = () => document.getElementById("list").innerHTML = "<li>disconnected</li>";
+</script>
+</body></html>

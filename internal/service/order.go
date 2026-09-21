@@ -15,16 +15,19 @@ import (
 // OrderService manages the purchase saga:
 // hold → order(pending) → gateway authorize → paid/failed.
 type OrderService struct {
-	orders  OrderRepository
-	holds   HoldRepository
-	invent  Inventory
-	gateway payment.Gateway
-	cache   AvailabilityInvalidator
+	orders   OrderRepository
+	holds    HoldRepository
+	invent   Inventory
+	gateway  payment.Gateway
+	cache    AvailabilityInvalidator // may be nil
+	announce AvailabilityAnnouncer   // may be nil
 }
 
 // NewOrderService wires the saga with its dependencies.
-func NewOrderService(orders OrderRepository, holds HoldRepository, invent Inventory, gw payment.Gateway, cache AvailabilityInvalidator) *OrderService {
-	return &OrderService{orders: orders, holds: holds, invent: invent, gateway: gw, cache: cache}
+// cache and announce may be nil: then no cache invalidation
+// and no real-time announcements happen.
+func NewOrderService(orders OrderRepository, holds HoldRepository, invent Inventory, gw payment.Gateway, cache AvailabilityInvalidator, announce AvailabilityAnnouncer) *OrderService {
+	return &OrderService{orders: orders, holds: holds, invent: invent, gateway: gw, cache: cache, announce: announce}
 }
 
 // Create starts the purchase saga for a held ticket set.
@@ -32,7 +35,6 @@ func NewOrderService(orders OrderRepository, holds HoldRepository, invent Invent
 // Returns the order and whether it was created now (true)
 // or is an idempotent replay (false).
 func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, key string) (*domain.Order, bool, error) {
-	// [0] input guards
 	if user == nil || user.ID == "" {
 		return nil, false, fmt.Errorf("%w: authentication required", domain.ErrUnauthorized)
 	}
@@ -107,7 +109,6 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		return nil, false, err
 	}
 
-	// [5] gateway call and finalization — shared with Pay
 	final, err := s.finalizePayment(ctx, o, h)
 	if err != nil {
 		return nil, false, err
@@ -117,20 +118,16 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 
 // Pay charges the card for the pending order and finalizes the saga.
 func (s *OrderService) Pay(ctx context.Context, user *domain.User, orderID string) (*domain.Order, error) {
-
 	o, err := s.orders.ByID(ctx, orderID)
 	if err != nil {
 		return nil, err
 	}
-
 	if o.UserID != user.ID {
 		return nil, fmt.Errorf("%w: order belongs to another user", domain.ErrForbidden)
 	}
-
 	if o.Status != domain.OrderPending {
 		return nil, fmt.Errorf("%w: order in status %q is not payable", domain.ErrConflict, o.Status)
 	}
-
 	h, err := s.holds.ByID(ctx, o.HoldID)
 	if err != nil {
 		return nil, err
@@ -139,8 +136,8 @@ func (s *OrderService) Pay(ctx context.Context, user *domain.User, orderID strin
 }
 
 // finalizePayment processes the gateway outcome for the order:
-// success → paid + hold confirmed + tickets sold,
-// declined → failed + compensated, timeout → leave pending.
+// success → paid + hold confirmed + tickets sold + announce,
+// declined → failed + compensated + announce, timeout → leave pending.
 // Shared by Create and Pay.
 func (s *OrderService) finalizePayment(ctx context.Context, o *domain.Order, h *domain.Hold) (*domain.Order, error) {
 	ref, authErr := s.gateway.Authorize(ctx, o.ID, o.Total)
@@ -167,6 +164,12 @@ func (s *OrderService) finalizePayment(ctx context.Context, o *domain.Order, h *
 		if err := s.invent.ConfirmHold(ctx, h.ID); err != nil {
 			return nil, err
 		}
+		if s.cache != nil {
+			_ = s.cache.Invalidate(ctx, h.EventID) // best effort
+		}
+		if s.announce != nil {
+			_ = s.announce.PublishAvailability(ctx, h.EventID) // best effort
+		}
 		final, err := s.orders.ByID(ctx, o.ID)
 		if err != nil {
 			return nil, err
@@ -186,6 +189,12 @@ func (s *OrderService) finalizePayment(ctx context.Context, o *domain.Order, h *
 		}
 		if err := s.invent.Release(ctx, h.ID); err != nil {
 			return nil, fmt.Errorf("compensate: release hold: %w", err)
+		}
+		if s.cache != nil {
+			_ = s.cache.Invalidate(ctx, h.EventID)
+		}
+		if s.announce != nil {
+			_ = s.announce.PublishAvailability(ctx, h.EventID)
 		}
 		return nil, fmt.Errorf("%w: gateway declined the charge", domain.ErrPaymentDeclined)
 
