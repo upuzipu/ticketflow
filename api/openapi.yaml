@@ -366,7 +366,7 @@ paths:
       description: >
         Atomically captures qty available tickets of the category
         (SELECT … FOR UPDATE SKIP LOCKED). Concurrent reservers get
-        different tickets or 409 sold-out.
+        different tickets or 409 sold-out. Rate-limited to 30 req/min per IP.
       security:
         - bearerAuth: []
       parameters:
@@ -521,9 +521,10 @@ paths:
       tags: [system]
       summary: WebSocket availability stream for the event
       description: >
-        Upgrade to WebSocket. The server pushes JSON frames
-        {"type":"availability","event_id":…,"categories":[…]} on every
-        inventory change; an initial snapshot is sent right after connect.
+        Upgrade to WebSocket. Server sends availability snapshots
+        ({"type":"availability","event_id":…,"server_time":…,"categories":[…]})
+        on every inventory change and an initial snapshot on connect.
+        Server sends a ping frame every 20 s to keep proxies alive.
         Without the Upgrade header the endpoint responds 501.
       parameters:
         - name: id

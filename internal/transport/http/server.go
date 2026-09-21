@@ -41,9 +41,15 @@ func NewServer(
 	})
 	mux.Handle("GET /metrics", promhttp.Handler())
 
+	// --- demo page ---
+	mux.HandleFunc("GET /demo.html", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, "deploy/demo.html")
+	})
+
 	// --- auth ---
+	registerLimiter := middleware.RateLimit(limiter, 3, time.Minute)
 	loginLimiter := middleware.RateLimit(limiter, 5, time.Minute)
-	mux.HandleFunc("POST /auth/register", auth.Register)
+	mux.Handle("POST /auth/register", registerLimiter(http.HandlerFunc(auth.Register)))
 	mux.Handle("POST /auth/login", loginLimiter(http.HandlerFunc(auth.Login)))
 	mux.HandleFunc("POST /auth/refresh", auth.Refresh)
 	mux.HandleFunc("POST /auth/logout", auth.Logout)
@@ -53,28 +59,24 @@ func NewServer(
 	mux.Handle("POST /events", middleware.Auth(tokens)(http.HandlerFunc(events.Create)))
 	mux.Handle("POST /events/{id}/publish", middleware.Auth(tokens)(http.HandlerFunc(events.Publish)))
 	mux.HandleFunc("GET /events", events.List)
+	mux.HandleFunc("GET /events/{id}", events.GetByID)
 	mux.HandleFunc("GET /events/{id}/availability", events.Availability)
 
 	// --- holds ---
-	orderLimiter := middleware.RateLimit(limiter, 20, time.Minute)
-	mux.Handle("POST /events/{id}/holds", middleware.Auth(tokens)(http.HandlerFunc(holds.Create)))
+	holdsLimiter := middleware.RateLimit(limiter, 30, time.Minute)
+	mux.Handle("POST /events/{id}/holds", middleware.Auth(tokens)(holdsLimiter(http.HandlerFunc(holds.Create))))
+	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
 	mux.Handle("DELETE /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Release)))
 
 	// --- orders ---
+	orderLimiter := middleware.RateLimit(limiter, 20, time.Minute)
 	mux.Handle("POST /orders", middleware.Auth(tokens)(orderLimiter(http.HandlerFunc(orders.Create))))
+	mux.Handle("GET /orders/mine", middleware.Auth(tokens)(http.HandlerFunc(orders.ListMine)))
 	mux.Handle("POST /orders/{id}/pay", middleware.Auth(tokens)(http.HandlerFunc(orders.Pay)))
 	mux.Handle("GET /orders/{id}", middleware.Auth(tokens)(http.HandlerFunc(orders.ByID)))
 
+	// --- realtime ---
 	mux.HandleFunc("GET /ws/events/{id}", realtime.Subscribe)
-
-	mux.HandleFunc("GET /demo.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "deploy/demo.html")
-	})
-
-	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
-	mux.HandleFunc("GET /events/{id}", events.GetByID)
-	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
-	mux.Handle("GET /orders/mine", middleware.Auth(tokens)(http.HandlerFunc(orders.ListMine)))
 
 	return &Server{
 		srv: &http.Server{
