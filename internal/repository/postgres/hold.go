@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
@@ -330,4 +331,62 @@ func (i *Inventory) TicketsByHold(ctx context.Context, holdID string) (map[strin
 		return nil, fmt.Errorf("iterate tickets by hold: %w", err)
 	}
 	return out, nil
+}
+
+// IssueCodes generates and persists a unique code per ticket.
+// Idempotent: tickets with an existing code are skipped.
+func (i *Inventory) IssueCodes(ctx context.Context, ticketIDs []string) (map[string]string, error) {
+	tx, err := i.pool.p.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const selSQL = `
+        SELECT id, code FROM tickets
+         WHERE id = ANY($1)
+         FOR UPDATE`
+	rows, err := tx.Query(ctx, selSQL, ticketIDs)
+	if err != nil {
+		return nil, fmt.Errorf("select tickets: %w", err)
+	}
+	type t struct {
+		id   string
+		code *string
+	}
+	var tickets []t
+	for rows.Next() {
+		var x t
+		if err := rows.Scan(&x.id, &x.code); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("scan ticket: %w", err)
+		}
+		tickets = append(tickets, x)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tickets: %w", err)
+	}
+
+	issued := make(map[string]string)
+	for _, x := range tickets {
+		if x.code != nil {
+			continue // already issued — idempotency
+		}
+		code := "TCK-" + uuid.NewString()[:8]
+		const updSQL = `
+            UPDATE tickets SET code = $2 WHERE id = $1 AND code IS NULL`
+		tag, err := tx.Exec(ctx, updSQL, x.id, code)
+		if err != nil {
+			return nil, fmt.Errorf("issue code: %w", err)
+		}
+		if tag.RowsAffected() == 1 {
+			issued[x.id] = code
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return issued, nil
 }

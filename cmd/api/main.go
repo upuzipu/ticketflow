@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/upuzipu/ticketflow/internal/queue/consumer"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/upuzipu/ticketflow/internal/auth"
@@ -76,6 +77,19 @@ func run() error {
 	}
 	defer producer.Close()
 
+	ticketsConsumer, err := kafka.NewConsumer(
+		[]string{"localhost:9092"},
+		"ticketflow-tickets",
+		[]string{"order-events"},
+		log,
+	)
+	if err != nil {
+		return fmt.Errorf("kafka consumer: %w", err)
+	}
+	defer ticketsConsumer.Close()
+
+	ticketsIssuer := consumer.NewTicketsIssuer(inventory, producer, log)
+
 	// --- handlers ---
 	authHandler := handler.NewAuthHandler(authService)
 	eventHandler := handler.NewEventHandler(eventService)
@@ -90,6 +104,9 @@ func run() error {
 
 	// --- run all in errgroup ---
 	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return ticketsConsumer.Run(ctx, ticketsIssuer.Handle)
+	})
 
 	g.Go(func() error {
 		return server.Run()

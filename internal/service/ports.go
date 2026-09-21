@@ -130,6 +130,12 @@ type Inventory interface {
 
 	// TicketsByHold returns the current statuses of the hold's tickets.
 	TicketsByHold(ctx context.Context, holdID string) (map[string]domain.TicketStatus, error)
+
+	// IssueCodes generates and persists a unique code per ticket.
+	// Tickets that already have a code are left unchanged and NOT
+	// included in the result (idempotent issuance).
+	// Returns the map of ticketID → issued code (only newly issued).
+	IssueCodes(ctx context.Context, ticketIDs []string) (map[string]string, error)
 }
 
 // OrderRepository persists and retrieves orders and payments.
@@ -159,4 +165,9 @@ type OrderRepository interface {
 
 	// PaymentIDByOrder returns the payment record ID for the order.
 	PaymentIDByOrder(ctx context.Context, orderID string) (string, error)
+}
+
+// EventPublisher publishes domain events (implemented by kafka.Producer).
+type EventPublisher interface {
+	Publish(ctx context.Context, e domain.DomainEvent) error
 }
