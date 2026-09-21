@@ -7,6 +7,6 @@
 # build artifacts
 *.exe
 
-# runtime output (появятся на поздних этапах)
+# runtime output
 outbox-mails/
 storage/

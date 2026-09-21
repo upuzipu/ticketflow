@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -25,7 +24,7 @@ func NewOrderRepository(pool *Pool, outbox *OutboxRepository) *OrderRepository {
 
 // Create stores a new order, it's pending payment and the order.paid
 // outbox event in one transaction.
-func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain.Payment, ticketIDs []string) error {
+func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain.Payment) error {
 	tx, err := r.pool.p.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -54,19 +53,6 @@ func (r *OrderRepository) Create(ctx context.Context, o *domain.Order, p *domain
 		p.ID, p.OrderID, string(p.Status), p.Amount.Amount, p.Amount.Currency,
 		p.GatewayRef, p.CreatedAt); err != nil {
 		return fmt.Errorf("insert payment: %w", err)
-	}
-
-	// order.paid goes to the outbox INSIDE this transaction —
-	// either both (order + event) are stored, or neither.
-	event := domain.OrderPaidEvent{
-		OrderID:   o.ID,
-		UserID:    o.UserID,
-		Total:     o.Total,
-		TicketIDs: ticketIDs,
-		At:        time.Now().UTC(),
-	}
-	if err := r.outbox.Insert(ctx, tx, event); err != nil {
-		return fmt.Errorf("insert outbox event: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
@@ -185,4 +171,29 @@ func (r *OrderRepository) PaymentIDByOrder(ctx context.Context, orderID string) 
 }
 
 // marshalEvent is a helper kept close to outbox usage (json tags = field names).
-var _ = json.Marshal // keep json import if unused elsewhere
+var _ = json.Marshal
+
+// MarkPaidWithEvent atomically transitions the order to paid and
+// writes the order.paid event to the outbox.
+func (r *OrderRepository) MarkPaidWithEvent(ctx context.Context, orderID string, event domain.OrderPaidEvent) error {
+	tx, err := r.pool.p.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	const updSQL = `
+        UPDATE orders SET status = $2, updated_at = now(), version = version + 1
+         WHERE id = $1`
+	tag, err := tx.Exec(ctx, updSQL, orderID, string(domain.OrderPaid))
+	if err != nil {
+		return fmt.Errorf("mark paid: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return domain.ErrNotFound
+	}
+	if err := r.outbox.Insert(ctx, tx, event); err != nil {
+		return fmt.Errorf("insert outbox event: %w", err)
+	}
+	return tx.Commit(ctx)
+}

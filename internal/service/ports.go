@@ -134,9 +134,12 @@ type Inventory interface {
 
 // OrderRepository persists and retrieves orders and payments.
 type OrderRepository interface {
-	// Create stores a new order with a pending payment record and the
-	// order.paid outbox event in one transaction.
-	Create(ctx context.Context, o *domain.Order, p *domain.Payment, ticketIDs []string) error
+	// Create stores a new order with a pending payment record in one transaction.
+	Create(ctx context.Context, o *domain.Order, p *domain.Payment) error
+
+	// MarkPaidWithEvent atomically transitions the order to paid and
+	// stores the order.paid event in the outbox.
+	MarkPaidWithEvent(ctx context.Context, orderID string, event domain.OrderPaidEvent) error
 
 	// ByID returns the order by ID.
 	// If no such order exists, it returns an error matching domain.ErrNotFound.

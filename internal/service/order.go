@@ -94,7 +94,7 @@ func (s *OrderService) Create(ctx context.Context, user *domain.User, holdID, ke
 		CreatedAt: now,
 	}
 
-	err = s.orders.Create(ctx, o, p, h.TicketIDs)
+	err = s.orders.Create(ctx, o, p)
 	if errors.Is(err, domain.ErrConflict) {
 		winner, getErr := s.orders.ByIdempotencyKey(ctx, user.ID, key)
 		if getErr != nil {
@@ -153,7 +153,14 @@ func (s *OrderService) finalizePayment(ctx context.Context, o *domain.Order, h *
 		if err := s.orders.UpdatePaymentStatus(ctx, paymentID, domain.PaymentAuthorized, ref); err != nil {
 			return nil, err
 		}
-		if err := s.orders.UpdateStatus(ctx, o.ID, domain.OrderPaid); err != nil {
+		event := domain.OrderPaidEvent{
+			OrderID:   o.ID,
+			UserID:    o.UserID,
+			Total:     o.Total,
+			TicketIDs: h.TicketIDs,
+			At:        time.Now().UTC(),
+		}
+		if err := s.orders.MarkPaidWithEvent(ctx, o.ID, event); err != nil {
 			return nil, err
 		}
 		if err := s.invent.ConfirmHold(ctx, h.ID); err != nil {
