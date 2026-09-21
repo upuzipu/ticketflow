@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/upuzipu/ticketflow/internal/service"
 	"github.com/upuzipu/ticketflow/internal/transport/http/handler"
 	"github.com/upuzipu/ticketflow/internal/transport/http/middleware"
@@ -38,11 +39,12 @@ func NewServer(addr string, log *slog.Logger, tokens service.TokenIssuer, auth *
 
 	mux.HandleFunc("POST /auth/refresh", auth.Refresh)
 	mux.HandleFunc("POST /auth/logout", auth.Logout)
+	mux.Handle("GET /metrics", promhttp.Handler())
 
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,
-			Handler:           middleware.Logging(log)(mux),
+			Handler:           middleware.Logging(log)(middleware.Metrics(mux)),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
 			WriteTimeout:      15 * time.Second,

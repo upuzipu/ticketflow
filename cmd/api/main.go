@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/upuzipu/ticketflow/internal/observability/metrics"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/upuzipu/ticketflow/internal/auth"
@@ -65,6 +67,14 @@ func run() error {
 	holdHandler := handler.NewHoldHandler(holdService)
 
 	expirer := worker.NewHoldExpirer(inventory, holdsRepo, log)
+
+	prometheus.MustRegister(
+		metrics.HTTPRequestsTotal,
+		metrics.HTTPDuration,
+		metrics.OrdersTotal,
+		metrics.HoldsActive,
+		metrics.PaymentDuration,
+	)
 
 	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler)
 
