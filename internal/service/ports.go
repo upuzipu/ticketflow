@@ -171,3 +171,20 @@ type OrderRepository interface {
 type EventPublisher interface {
 	Publish(ctx context.Context, e domain.DomainEvent) error
 }
+
+// AvailabilityCache caches availability snapshots (implemented by redis).
+type AvailabilityCache interface {
+	// Get returns the cached snapshot; ok=false on cache miss.
+	Get(ctx context.Context, eventID string) ([]domain.CategoryAvailability, bool, error)
+
+	// Set stores the snapshot with a TTL.
+	Set(ctx context.Context, eventID string, stats []domain.CategoryAvailability, ttl time.Duration) error
+
+	// Invalidate drops the snapshot.
+	Invalidate(ctx context.Context, eventID string) error
+}
+
+// AvailabilityInvalidator drops cached availability after inventory changes.
+type AvailabilityInvalidator interface {
+	Invalidate(ctx context.Context, eventID string) error
+}

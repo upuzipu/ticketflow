@@ -19,11 +19,12 @@ type OrderService struct {
 	holds   HoldRepository
 	invent  Inventory
 	gateway payment.Gateway
+	cache   AvailabilityInvalidator
 }
 
 // NewOrderService wires the saga with its dependencies.
-func NewOrderService(orders OrderRepository, holds HoldRepository, invent Inventory, gw payment.Gateway) *OrderService {
-	return &OrderService{orders: orders, holds: holds, invent: invent, gateway: gw}
+func NewOrderService(orders OrderRepository, holds HoldRepository, invent Inventory, gw payment.Gateway, cache AvailabilityInvalidator) *OrderService {
+	return &OrderService{orders: orders, holds: holds, invent: invent, gateway: gw, cache: cache}
 }
 
 // Create starts the purchase saga for a held ticket set.

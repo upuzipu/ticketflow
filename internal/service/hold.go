@@ -21,33 +21,40 @@ const MaxHoldsPerUser = 5
 type HoldService struct {
 	holds  HoldRepository
 	invent Inventory
+	cache  AvailabilityInvalidator // may be nil
 }
 
 // NewHoldService wires the service with its dependencies.
-func NewHoldService(holds HoldRepository, invent Inventory) *HoldService {
-	return &HoldService{holds: holds, invent: invent}
+// cache may be nil: then no cache invalidation happens.
+func NewHoldService(holds HoldRepository, invent Inventory, cache AvailabilityInvalidator) *HoldService {
+	return &HoldService{holds: holds, invent: invent, cache: cache}
 }
 
 // Create reserves qty tickets of the category for the user.
 // It returns the hold with its captured tickets and expiry.
 func (s *HoldService) Create(ctx context.Context, user *domain.User, categoryID string, qty int) (*domain.Hold, error) {
-	// 1. input guards
+	// guard: authentication
 	if user == nil || user.ID == "" {
 		return nil, fmt.Errorf("%w: authentication required", domain.ErrUnauthorized)
 	}
+	// guard: qty bounds
 	if qty <= 0 || qty > 10 {
 		return nil, fmt.Errorf("%w: qty must be between 1 and 10", domain.ErrValidation)
 	}
 
-	// 2. reserve the tickets atomically (inventory creates the hold record
-	//    in the same transaction)
+	// reserve the tickets atomically (inventory creates the hold record
+	// in the same transaction)
 	holdID := uuid.NewString()
 	expiresAt := time.Now().UTC().Add(HoldTTL)
 
 	ticketIDs, err := s.invent.Reserve(ctx, holdID, user.ID, categoryID, qty, expiresAt)
 	if err != nil {
-		return nil, err
+		return nil, err // ErrSoldOut / ErrNotFound / infra — как есть
 	}
+
+	// cache invalidation is handled by OrderService/HoldService.Release paths
+	// and by the 10s TTL; on Create we do not know the eventID yet
+	// without an extra query (documented in DECISIONS).
 
 	return &domain.Hold{
 		ID:         holdID,
@@ -69,7 +76,13 @@ func (s *HoldService) Release(ctx context.Context, user *domain.User, holdID str
 	if h.UserID != user.ID {
 		return fmt.Errorf("%w: hold belongs to another user", domain.ErrForbidden)
 	}
-	return s.invent.Release(ctx, holdID)
+	if err := s.invent.Release(ctx, holdID); err != nil {
+		return err
+	}
+	if s.cache != nil {
+		_ = s.cache.Invalidate(ctx, h.EventID)
+	}
+	return nil
 }
 
 // ByID returns the user's own hold.

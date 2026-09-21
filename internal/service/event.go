@@ -14,11 +14,13 @@ import (
 type EventService struct {
 	events EventRepository
 	stats  EventStats
+	cache  AvailabilityCache
 }
 
 // NewEventService wires the service with its dependencies.
-func NewEventService(events EventRepository, stats EventStats) *EventService {
-	return &EventService{events: events, stats: stats}
+// cache may be nil: then Availability always reads through to the DB.
+func NewEventService(events EventRepository, stats EventStats, cache AvailabilityCache) *EventService {
+	return &EventService{events: events, stats: stats, cache: cache}
 }
 
 // Create validates and stores a new event together with its categories.
@@ -114,9 +116,24 @@ func (s *EventService) List(ctx context.Context, f domain.EventFilter) ([]domain
 }
 
 // Availability returns per-category ticket counters for the event.
+// Cached: read-through with invalidation on every inventory change.
 func (s *EventService) Availability(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error) {
+	if s.cache != nil {
+		if stats, ok, err := s.cache.Get(ctx, eventID); err == nil && ok {
+			return stats, nil
+		}
+	}
+
 	if _, err := s.events.ByID(ctx, eventID); err != nil {
 		return nil, err
 	}
-	return s.stats.Availability(ctx, eventID)
+	stats, err := s.stats.Availability(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.cache != nil {
+		_ = s.cache.Set(ctx, eventID, stats, 10*time.Second) // best effort
+	}
+	return stats, nil
 }

@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/joho/godotenv"
-	"github.com/upuzipu/ticketflow/internal/queue/consumer"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/upuzipu/ticketflow/internal/auth"
 	"github.com/upuzipu/ticketflow/internal/config"
 	"github.com/upuzipu/ticketflow/internal/payment/mock"
+	"github.com/upuzipu/ticketflow/internal/queue/consumer"
 	"github.com/upuzipu/ticketflow/internal/queue/kafka"
 	"github.com/upuzipu/ticketflow/internal/repository/postgres"
+	redisrepo "github.com/upuzipu/ticketflow/internal/repository/redis"
 	"github.com/upuzipu/ticketflow/internal/service"
 	apphttp "github.com/upuzipu/ticketflow/internal/transport/http"
 	"github.com/upuzipu/ticketflow/internal/transport/http/handler"
@@ -50,33 +51,46 @@ func run() error {
 	}
 	defer pool.Close()
 
-	// --- repositories & services ---
+	// --- redis ---
+	redisClient, err := redisrepo.NewClient(ctx, "localhost:6379")
+	if err != nil {
+		return fmt.Errorf("redis: %w", err)
+	}
+	defer redisClient.Close()
+
+	limiter := redisrepo.NewRateLimiter(redisClient)
+	availCache := redisrepo.NewAvailabilityCache(redisClient)
+
+	// --- auth ---
 	usersRepo := postgres.NewUserRepository(pool)
 	hasher := auth.NewBcryptHasher(auth.DefaultCost)
 	issuer := auth.NewJWTIssuer(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
 	refreshStore := postgres.NewRefreshTokenStore(pool)
 	authService := service.NewAuthService(usersRepo, hasher, issuer, refreshStore)
 
+	// --- events ---
 	eventsRepo := postgres.NewEventRepository(pool)
-	eventService := service.NewEventService(eventsRepo, eventsRepo)
+	eventService := service.NewEventService(eventsRepo, eventsRepo, availCache)
 
+	// --- holds ---
 	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
-	holdService := service.NewHoldService(holdsRepo, inventory)
+	holdService := service.NewHoldService(holdsRepo, inventory, availCache)
 
+	// --- orders ---
 	outboxRepo := postgres.NewOutboxRepository(pool)
 	ordersRepo := postgres.NewOrderRepository(pool, outboxRepo)
-
 	gateway := mock.NewGateway(300 * time.Millisecond)
-	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway)
+	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway, availCache)
 
-	// --- kafka ---
+	// --- kafka producer ---
 	producer, err := kafka.NewProducer(ctx, []string{"localhost:9092"}, log)
 	if err != nil {
 		return fmt.Errorf("kafka producer: %w", err)
 	}
 	defer producer.Close()
 
+	// --- kafka consumer (ticket codes) ---
 	ticketsConsumer, err := kafka.NewConsumer(
 		[]string{"localhost:9092"},
 		"ticketflow-tickets",
@@ -100,13 +114,10 @@ func run() error {
 	expirer := worker.NewHoldExpirer(inventory, holdsRepo, log)
 	relay := worker.NewOutboxRelay(outboxRepo, producer, log)
 
-	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler, orderHandler)
+	server := apphttp.NewServer(cfg.HTTPAddr, log, issuer, authHandler, eventHandler, holdHandler, orderHandler, limiter)
 
-	// --- run all in errgroup ---
+	// --- run everything ---
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return ticketsConsumer.Run(ctx, ticketsIssuer.Handle)
-	})
 
 	g.Go(func() error {
 		return server.Run()
@@ -116,6 +127,9 @@ func run() error {
 	})
 	g.Go(func() error {
 		return relay.Run(gctx)
+	})
+	g.Go(func() error {
+		return ticketsConsumer.Run(gctx, ticketsIssuer.Handle)
 	})
 	g.Go(func() error {
 		<-ctx.Done() // OS signal: Ctrl+C or SIGTERM
