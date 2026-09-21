@@ -2,12 +2,121 @@ openapi: 3.0.3
 info:
   title: TicketFlow API
   version: 1.0.0
-  description: Ticket sales — auth, events, holds, orders, real-time availability.
+  description: >
+    Ticket sales platform: auth, events catalog, atomic ticket holds,
+    purchase saga with idempotency, real-time availability over WebSocket.
 servers:
   - url: http://localhost:8080
+
+tags:
+  - name: auth
+  - name: events
+  - name: holds
+  - name: orders
+  - name: system
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Error:
+      description: Domain error in the uniform envelope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          example: "domain: no tickets available"
+    TokenPair:
+      type: object
+      properties:
+        access:  { type: string, description: JWT, 15 min }
+        refresh: { type: string, description: JWT, 7 days, rotate on use }
+    UserCreated:
+      type: object
+      properties:
+        id:    { type: string, format: uuid }
+        email: { type: string, format: email }
+        role:  { type: string, enum: [buyer, organizer] }
+    Me:
+      type: object
+      properties:
+        id:   { type: string, format: uuid }
+        role: { type: string, example: buyer }
+    Event:
+      type: object
+      properties:
+        ID:          { type: string, format: uuid }
+        OrganizerID: { type: string, format: uuid }
+        VenueID:     { type: string }
+        Title:       { type: string }
+        Description: { type: string }
+        StartsAt:    { type: string, format: date-time }
+        Status:      { type: string, enum: [draft, published, cancelled] }
+        CreatedAt:   { type: string, format: date-time }
+        UpdatedAt:   { type: string, format: date-time }
+    EventList:
+      type: object
+      properties:
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/Event' }
+        next_cursor:
+          type: string
+          description: keyset cursor ("<RFC3339>|<uuid>"); empty = no more pages
+    CategoryAvailability:
+      type: object
+      properties:
+        CategoryID: { type: string, format: uuid }
+        Name:       { type: string }
+        Price:
+          type: object
+          properties:
+            Amount:   { type: integer, description: minor units (kopecks) }
+            Currency: { type: string, example: RUB }
+        TotalQty:  { type: integer }
+        Available: { type: integer }
+        Held:      { type: integer }
+        Sold:      { type: integer }
+    Availability:
+      type: object
+      properties:
+        event_id: { type: string, format: uuid }
+        categories:
+          type: array
+          items: { $ref: '#/components/schemas/CategoryAvailability' }
+    HoldCreated:
+      type: object
+      properties:
+        hold_id:    { type: string, format: uuid }
+        status:     { type: string, enum: [active] }
+        expires_at: { type: string, format: date-time }
+        tickets:    { type: integer, description: number of captured tickets }
+    Order:
+      type: object
+      properties:
+        id:          { type: string, format: uuid }
+        status:      { type: string, enum: [pending, paid, failed, expired, confirmed, refunded] }
+        total_minor: { type: integer }
+        currency:    { type: string }
+        hold_id:     { type: string, format: uuid }
+        created:     { type: boolean, description: false = idempotent replay of an existing order }
+        created_at:  { type: string, format: date-time }
+
+
 paths:
   /auth/register:
     post:
+      tags: [auth]
       summary: Register a buyer or organizer
       requestBody:
         required: true
@@ -21,13 +130,176 @@ paths:
                 password: { type: string, minLength: 8 }
                 role:     { type: string, enum: [buyer, organizer] }
       responses:
-        '201': { description: User created }
-        '409': { description: Email already taken }
-        '403': { description: Role not allowed }
-        '422': { description: Validation failed }
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserCreated' }
+        '403': { description: Role not allowed (admin/guest), $ref: '#/components/responses/Error' }
+        '409': { description: Email already taken,    $ref: '#/components/responses/Error' }
+        '422': { description: Validation failed,      $ref: '#/components/responses/Error' }
+  /auth/login:
+    post:
+      tags: [auth]
+      summary: Login with email and password
+      description: Rate-limited to 5 requests per minute per IP.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:    { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: Token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Unknown email or wrong password (indistinguishable), $ref: '#/components/responses/Error' }
+        '422': { description: Malformed body, $ref: '#/components/responses/Error' }
+        '429': { description: Rate limit exceeded, $ref: '#/components/responses/Error' }
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Rotate the token pair
+      description: >
+        The presented refresh token is revoked and a new pair is issued.
+        Reusing a rotated token returns 401 (reuse detection).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: New token pair
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TokenPair' }
+        '401': { description: Invalid, expired or revoked token, $ref: '#/components/responses/Error' }
+  /auth/logout:
+    post:
+      tags: [auth]
+      summary: Revoke the refresh token
+      description: Idempotent. The access token remains valid until it expires (≤15 min).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        '204': { description: Revoked }
+        '401': { description: Invalid token, $ref: '#/components/responses/Error' }
+
+  /users/me:
+    get:
+      tags: [auth]
+      summary: Current authenticated identity
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Identity from the access token
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { description: Missing or invalid token, $ref: '#/components/responses/Error' }
+
+  /events:
+    post:
+      tags: [events]
+      summary: Create an event with priced ticket categories
+      description: Organizer or admin only. Categories are validated (qty ≥ 1, positive price, currency set). Tickets are generated for every category in the same transaction.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, starts_at, categories]
+              properties:
+                title:    { type: string }
+                starts_at: { type: string, format: date-time }
+                categories:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [name, qty, price_minor, currency]
+                    properties:
+                      name:        { type: string }
+                      qty:         { type: integer, minimum: 1 }
+                      price_minor: { type: integer, minimum: 1 }
+                      currency:    { type: string, example: RUB }
+      responses:
+        '201':
+          description: Event created (draft), tickets generated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:        { type: string, format: uuid }
+                  title:     { type: string }
+                  starts_at: { type: string, format: date-time }
+                  status:    { type: string, enum: [draft] }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: Caller is not an organizer, $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+    get:
+      tags: [events]
+      summary: List published events (keyset pagination)
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: next_cursor from the previous page
+      responses:
+        '200':
+          description: Page of events
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventList' }
+  /events/{id}/publish:
+    post:
+      tags: [events]
+      summary: Publish the event (draft → published)
+      description: Owner of the event or admin. FSM rejects repeated publication (409).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Published }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: Not the owner, $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { description: Invalid transition (already published/cancelled), $ref: '#/components/responses/Error' }
   /events/{id}/availability:
     get:
+      tags: [events]
       summary: Per-category ticket counters
+      description: Cached (10s TTL) + invalidated on release/confirm.
       parameters:
         - name: id
           in: path
@@ -38,20 +310,177 @@ paths:
           description: Counters
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  event_id:  { type: string, format: uuid }
-                  categories:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        CategoryID: { type: string }
-                        Name:       { type: string }
-                        Price:      { type: object, properties: { Amount: {type: integer}, Currency: {type: string} } }
-                        TotalQty:   { type: integer }
-                        Available:  { type: integer }
-                        Held:       { type: integer }
-                        Sold:       { type: integer }
-        '404': { description: Event not found }
+              schema: { $ref: '#/components/schemas/Availability' }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { description: Bad uuid, $ref: '#/components/responses/Error' }
+
+  /events/{id}/holds:
+    post:
+      tags: [holds]
+      summary: Reserve tickets (atomic hold, 10 min TTL)
+      description: >
+        Atomically captures qty available tickets of the category
+        (SELECT … FOR UPDATE SKIP LOCKED). Concurrent reservers get
+        different tickets or 409 sold-out.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+          description: event id (informational; the category defines the event)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category_id, qty]
+              properties:
+                category_id: { type: string, format: uuid }
+                qty:         { type: integer, minimum: 1, maximum: 10 }
+      responses:
+        '201':
+          description: Hold created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HoldCreated' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { description: Not enough tickets, $ref: '#/components/responses/Error' }
+        '410': { description: Hold expired, $ref: '#/components/responses/Error' }
+        '422': { description: Validation failed (qty bounds, bad uuid), $ref: '#/components/responses/Error' }
+  /holds/{id}:
+    delete:
+      tags: [holds]
+      summary: Release the hold (tickets back to sale)
+      description: Owner only. Idempotent.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: Released (or already released) }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: Hold belongs to another user, $ref: '#/components/responses/Error' }
+
+  /orders:
+    post:
+      tags: [orders]
+      summary: Purchase saga — create the order from a hold and charge
+      description: >
+        Requires the Idempotency-Key-like body field idempotency_key (uuid):
+        repeated calls with the same key return the same order (200, created=false).
+        On gateway decline — 402 and tickets are released (compensation).
+        On gateway timeout — 424 and the order stays pending.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [hold_id, idempotency_key]
+              properties:
+                hold_id:         { type: string, format: uuid }
+                idempotency_key: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Order created and paid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '200':
+          description: Idempotent replay (same key) — existing order returned
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Error' }
+        '402': { description: Payment declined (order failed, tickets released), $ref: '#/components/responses/Error' }
+        '403': { description: Hold belongs to another user, $ref: '#/components/responses/Error' }
+        '404': { description: Hold not found, $ref: '#/components/responses/Error' }
+        '409': { description: Hold not active, $ref: '#/components/responses/Error' }
+        '410': { description: Hold expired, $ref: '#/components/responses/Error' }
+        '422': { description: Bad idempotency key / hold id, $ref: '#/components/responses/Error' }
+        '424': { description: Gateway timeout — order pending review, $ref: '#/components/responses/Error' }
+  /orders/{id}/pay:
+    post:
+      tags: [orders]
+      summary: Charge a pending order
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Paid
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Error' }
+        '402': { description: Payment declined, $ref: '#/components/responses/Error' }
+        '403': { description: Not the owner, $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { description: Order is not payable (wrong status), $ref: '#/components/responses/Error' }
+        '424': { description: Gateway timeout, $ref: '#/components/responses/Error' }
+  /orders/{id}:
+    get:
+      tags: [orders]
+      summary: Order status (owner only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The order
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: Not the owner, $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /ws/events/{id}:
+    get:
+      tags: [system]
+      summary: WebSocket availability stream for the event
+      description: >
+        Upgrade to WebSocket. The server pushes JSON frames
+        {"type":"availability","event_id":…,"categories":[…]} on every
+        inventory change; an initial snapshot is sent right after connect.
+        Without the Upgrade header the endpoint responds 501.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '101': { description: Switching Protocols (WebSocket) }
+        '501': { description: Not a WebSocket upgrade request }
+
+  /livez:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      responses:
+        '200': { description: OK }
+  /metrics:
+    get:
+      tags: [system]
+      summary: Prometheus exposition
+      responses:
+        '200':
+          description: Plain-text metrics
+          content:
+            text/plain: {}
