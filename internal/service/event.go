@@ -14,7 +14,7 @@ import (
 type EventService struct {
 	events EventRepository
 	stats  EventStats
-	cache  AvailabilityCache
+	cache  AvailabilityCache // may be nil — cache is optional
 }
 
 // NewEventService wires the service with its dependencies.
@@ -69,6 +69,19 @@ func (s *EventService) Create(ctx context.Context, organizer *domain.User, title
 		return nil, err
 	}
 	return event, nil
+}
+
+// ByID returns a published event with its categories.
+// Drafts and cancelled events are not exposed publicly (404).
+func (s *EventService) ByID(ctx context.Context, eventID string) (*domain.Event, error) {
+	e, err := s.events.ByID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if e.Status != domain.EventPublished {
+		return nil, domain.ErrNotFound // don't reveal drafts existence
+	}
+	return e, nil
 }
 
 // Publish transitions the event to published after ownership and FSM checks.
@@ -133,7 +146,9 @@ func (s *EventService) Availability(ctx context.Context, eventID string) ([]doma
 	}
 
 	if s.cache != nil {
-		_ = s.cache.Set(ctx, eventID, stats, 10*time.Second) // best effort
+		if err := s.cache.Set(ctx, eventID, stats, 10*time.Second); err != nil {
+			// best effort: serve the fresh DB data even if caching failed
+		}
 	}
 	return stats, nil
 }

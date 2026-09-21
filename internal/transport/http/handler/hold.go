@@ -82,3 +82,32 @@ func (h *HoldHandler) Release(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+// Get handles GET /holds/{id} — the owner sees the hold status.
+func (h *HoldHandler) Get(w http.ResponseWriter, r *http.Request) {
+	user, ok := middleware.UserFromContext(r.Context())
+	if !ok {
+		httpx.RespondError(w, domain.ErrUnauthorized)
+		return
+	}
+
+	holdID := r.PathValue("id")
+	if _, err := uuid.Parse(holdID); err != nil {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	actor := &domain.User{ID: user.ID, Role: domain.Role(user.Role)}
+	hold, err := h.svc.ByID(r.Context(), actor, holdID)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, map[string]any{
+		"hold_id":    hold.ID,
+		"status":     string(hold.Status),
+		"expires_at": hold.ExpiresAt.Format(time.RFC3339),
+		"tickets":    len(hold.TicketIDs),
+	})
+}

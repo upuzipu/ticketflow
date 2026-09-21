@@ -157,7 +157,7 @@ func TestRegister(t *testing.T) {
 			repo := &fakeUserRepo{createErr: tt.repoErr}
 			svc := newTestService(repo)
 
-			u, err := svc.Register(context.Background(), tt.email, tt.password, tt.role)
+			u, _, _, err := svc.Register(context.Background(), tt.email, tt.password, tt.role)
 
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {

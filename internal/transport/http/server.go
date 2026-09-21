@@ -70,6 +70,11 @@ func NewServer(
 	mux.HandleFunc("GET /demo.html", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "deploy/demo.html")
 	})
+
+	mux.Handle("GET /holds/{id}", middleware.Auth(tokens)(http.HandlerFunc(holds.Get)))
+	mux.HandleFunc("GET /events/{id}", events.GetByID)
+
+
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,

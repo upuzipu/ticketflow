@@ -140,3 +140,20 @@ func (h *EventHandler) Availability(w http.ResponseWriter, r *http.Request) {
 		"categories": stats,
 	})
 }
+
+// GetByID handles GET /events/{id} — published event with categories.
+func (h *EventHandler) GetByID(w http.ResponseWriter, r *http.Request) {
+	eventID := r.PathValue("id")
+	if _, err := uuid.Parse(eventID); err != nil {
+		httpx.RespondError(w, domain.ErrValidation)
+		return
+	}
+
+	e, err := h.svc.ByID(r.Context(), eventID)
+	if err != nil {
+		httpx.RespondError(w, err)
+		return
+	}
+
+	httpx.RespondJSON(w, http.StatusOK, e)
+}

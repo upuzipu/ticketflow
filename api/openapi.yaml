@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
   title: TicketFlow API
-  version: 1.0.0
+  version: 1.1.0
   description: >
-    Ticket sales platform: auth, events catalog, atomic ticket holds,
-    purchase saga with idempotency, real-time availability over WebSocket.
+    Ticket sales platform: auth (with auto-login on register), events catalog,
+    atomic ticket holds, purchase saga with idempotency, real-time availability.
 servers:
   - url: http://localhost:8080
 
@@ -21,6 +21,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+
   responses:
     Error:
       description: Domain error in the uniform envelope
@@ -41,17 +42,33 @@ components:
       properties:
         access:  { type: string, description: JWT, 15 min }
         refresh: { type: string, description: JWT, 7 days, rotate on use }
-    UserCreated:
+    Registered:
       type: object
+      description: User created + immediate token pair (auto-login)
       properties:
-        id:    { type: string, format: uuid }
-        email: { type: string, format: email }
-        role:  { type: string, enum: [buyer, organizer] }
+        id:      { type: string, format: uuid }
+        email:   { type: string, format: email }
+        role:    { type: string, enum: [buyer, organizer] }
+        access:  { type: string }
+        refresh: { type: string }
     Me:
       type: object
       properties:
         id:   { type: string, format: uuid }
         role: { type: string, example: buyer }
+    Money:
+      type: object
+      properties:
+        Amount:   { type: integer, description: minor units (kopecks) }
+        Currency: { type: string, example: RUB }
+    TicketCategory:
+      type: object
+      properties:
+        ID:       { type: string, format: uuid }
+        EventID:  { type: string, format: uuid }
+        Name:     { type: string }
+        Price:    { $ref: '#/components/schemas/Money' }
+        TotalQty: { type: integer }
     Event:
       type: object
       properties:
@@ -62,6 +79,9 @@ components:
         Description: { type: string }
         StartsAt:    { type: string, format: date-time }
         Status:      { type: string, enum: [draft, published, cancelled] }
+        Categories:
+          type: array
+          items: { $ref: '#/components/schemas/TicketCategory' }
         CreatedAt:   { type: string, format: date-time }
         UpdatedAt:   { type: string, format: date-time }
     EventList:
@@ -78,15 +98,11 @@ components:
       properties:
         CategoryID: { type: string, format: uuid }
         Name:       { type: string }
-        Price:
-          type: object
-          properties:
-            Amount:   { type: integer, description: minor units (kopecks) }
-            Currency: { type: string, example: RUB }
-        TotalQty:  { type: integer }
-        Available: { type: integer }
-        Held:      { type: integer }
-        Sold:      { type: integer }
+        Price:      { $ref: '#/components/schemas/Money' }
+        TotalQty:   { type: integer }
+        Available:  { type: integer }
+        Held:       { type: integer }
+        Sold:       { type: integer }
     Availability:
       type: object
       properties:
@@ -100,7 +116,14 @@ components:
         hold_id:    { type: string, format: uuid }
         status:     { type: string, enum: [active] }
         expires_at: { type: string, format: date-time }
-        tickets:    { type: integer, description: number of captured tickets }
+        tickets:    { type: integer }
+    HoldStatus:
+      type: object
+      properties:
+        hold_id:    { type: string, format: uuid }
+        status:     { type: string, enum: [active, confirmed, released, expired] }
+        expires_at: { type: string, format: date-time }
+        tickets:    { type: integer }
     Order:
       type: object
       properties:
@@ -112,12 +135,12 @@ components:
         created:     { type: boolean, description: false = idempotent replay of an existing order }
         created_at:  { type: string, format: date-time }
 
-
 paths:
   /auth/register:
     post:
       tags: [auth]
-      summary: Register a buyer or organizer
+      summary: Register a buyer or organizer (auto-login)
+      description: Creates the user and returns a fresh token pair. The refresh token is registered for rotation/revocation.
       requestBody:
         required: true
         content:
@@ -131,13 +154,14 @@ paths:
                 role:     { type: string, enum: [buyer, organizer] }
       responses:
         '201':
-          description: User created
+          description: User created with token pair
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/UserCreated' }
+              schema: { $ref: '#/components/schemas/Registered' }
         '403': { description: Role not allowed (admin/guest), $ref: '#/components/responses/Error' }
         '409': { description: Email already taken,    $ref: '#/components/responses/Error' }
         '422': { description: Validation failed,      $ref: '#/components/responses/Error' }
+
   /auth/login:
     post:
       tags: [auth]
@@ -162,13 +186,12 @@ paths:
         '401': { description: Unknown email or wrong password (indistinguishable), $ref: '#/components/responses/Error' }
         '422': { description: Malformed body, $ref: '#/components/responses/Error' }
         '429': { description: Rate limit exceeded, $ref: '#/components/responses/Error' }
+
   /auth/refresh:
     post:
       tags: [auth]
       summary: Rotate the token pair
-      description: >
-        The presented refresh token is revoked and a new pair is issued.
-        Reusing a rotated token returns 401 (reuse detection).
+      description: The presented refresh token is revoked and a new pair is issued. Reusing a rotated token returns 401.
       requestBody:
         required: true
         content:
@@ -185,6 +208,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/TokenPair' }
         '401': { description: Invalid, expired or revoked token, $ref: '#/components/responses/Error' }
+
   /auth/logout:
     post:
       tags: [auth]
@@ -221,7 +245,7 @@ paths:
     post:
       tags: [events]
       summary: Create an event with priced ticket categories
-      description: Organizer or admin only. Categories are validated (qty ≥ 1, positive price, currency set). Tickets are generated for every category in the same transaction.
+      description: Organizer or admin only. Categories validated; tickets generated per category in the same transaction.
       security:
         - bearerAuth: []
       requestBody:
@@ -232,7 +256,7 @@ paths:
               type: object
               required: [title, starts_at, categories]
               properties:
-                title:    { type: string }
+                title:     { type: string }
                 starts_at: { type: string, format: date-time }
                 categories:
                   type: array
@@ -277,6 +301,26 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EventList' }
+
+  /events/{id}:
+    get:
+      tags: [events]
+      summary: Event details with ticket categories
+      description: Published events only — drafts return 404 (existence not revealed).
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Event with categories
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Event' }
+        '404': { description: Not found (or not published), $ref: '#/components/responses/Error' }
+        '422': { description: Bad uuid, $ref: '#/components/responses/Error' }
+
   /events/{id}/publish:
     post:
       tags: [events]
@@ -295,6 +339,7 @@ paths:
         '403': { description: Not the owner, $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
         '409': { description: Invalid transition (already published/cancelled), $ref: '#/components/responses/Error' }
+
   /events/{id}/availability:
     get:
       tags: [events]
@@ -350,7 +395,28 @@ paths:
         '409': { description: Not enough tickets, $ref: '#/components/responses/Error' }
         '410': { description: Hold expired, $ref: '#/components/responses/Error' }
         '422': { description: Validation failed (qty bounds, bad uuid), $ref: '#/components/responses/Error' }
+
   /holds/{id}:
+    get:
+      tags: [holds]
+      summary: Hold status (owner only)
+      description: Lets the client check whether a hold is still active after a page refresh.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Hold status
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HoldStatus' }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { description: Hold belongs to another user, $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
     delete:
       tags: [holds]
       summary: Release the hold (tickets back to sale)
@@ -372,10 +438,9 @@ paths:
       tags: [orders]
       summary: Purchase saga — create the order from a hold and charge
       description: >
-        Requires the Idempotency-Key-like body field idempotency_key (uuid):
-        repeated calls with the same key return the same order (200, created=false).
-        On gateway decline — 402 and tickets are released (compensation).
-        On gateway timeout — 424 and the order stays pending.
+        Requires idempotency_key (uuid): repeated calls with the same key return
+        the same order (200, created=false). On gateway decline — 402 and tickets
+        are released (compensation). On gateway timeout — 424, order stays pending.
       security:
         - bearerAuth: []
       requestBody:
@@ -395,7 +460,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }
         '200':
-          description: Idempotent replay (same key) — existing order returned
+          description: Idempotent replay — existing order returned
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Order' }

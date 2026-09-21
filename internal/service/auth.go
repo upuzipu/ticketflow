@@ -25,19 +25,21 @@ func NewAuthService(users UserRepository, hasher PasswordHasher, tokens TokenIss
 	return &AuthService{users: users, hasher: hasher, tokens: tokens, refresh: refresh}
 }
 
-// Register creates a new user with the given email, password and role,
-// and returns the persisted domain.User.
-func (s *AuthService) Register(ctx context.Context, email, password string, role domain.Role) (*domain.User, error) {
+// Register creates a new user and immediately issues a token pair
+// (auto-login). The refresh token is registered for rotation/revocation.
+func (s *AuthService) Register(ctx context.Context, email, password string, role domain.Role) (*domain.User, string, string, error) {
+	// guard: reject unsupported roles early
 	if role != domain.RoleBuyer && role != domain.RoleOrganizer {
-		return nil, fmt.Errorf("%w: invalid role %q", domain.ErrForbidden, role)
+		return nil, "", "", fmt.Errorf("%w: invalid role %q", domain.ErrForbidden, role)
 	}
+	// guard: validate input before hashing
 	if email == "" || len(password) < 8 {
-		return nil, fmt.Errorf("%w: email is required, password must be at least 8 characters", domain.ErrValidation)
+		return nil, "", "", fmt.Errorf("%w: email is required, password must be at least 8 characters", domain.ErrValidation)
 	}
 
 	hash, err := s.hasher.Hash(password)
 	if err != nil {
-		return nil, fmt.Errorf("hash password: %w", err)
+		return nil, "", "", fmt.Errorf("hash password: %w", err)
 	}
 
 	u := &domain.User{
@@ -49,9 +51,17 @@ func (s *AuthService) Register(ctx context.Context, email, password string, role
 	}
 
 	if err := s.users.Create(ctx, u); err != nil {
-		return nil, err
+		return nil, "", "", err
 	}
-	return u, nil
+
+	access, refresh, err := s.tokens.IssuePair(u)
+	if err != nil {
+		return nil, "", "", err
+	}
+	if err := s.registerRefresh(ctx, u.ID, refresh); err != nil {
+		return nil, "", "", err
+	}
+	return u, access, refresh, nil
 }
 
 // Login verifies the credentials and returns a fresh token pair,

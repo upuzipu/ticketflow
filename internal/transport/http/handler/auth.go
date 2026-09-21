@@ -40,15 +40,17 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	u, err := h.svc.Register(r.Context(), req.Email, req.Password, domain.Role(req.Role))
+	u, access, refresh, err := h.svc.Register(r.Context(), req.Email, req.Password, domain.Role(req.Role))
 	if err != nil {
 		httpx.RespondError(w, err)
 		return
 	}
 	httpx.RespondJSON(w, http.StatusCreated, map[string]any{
-		"id":    u.ID,
-		"email": u.Email,
-		"role":  string(u.Role),
+		"id":      u.ID,
+		"email":   u.Email,
+		"role":    string(u.Role),
+		"access":  access,
+		"refresh": refresh,
 	})
 }
 
