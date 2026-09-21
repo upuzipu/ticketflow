@@ -52,7 +52,7 @@ func sagaFixture(t *testing.T, ctx context.Context, pool *postgres.Pool, tickets
 func reserve(t *testing.T, ctx context.Context, invent *postgres.Inventory, userID, catID string, qty int) string {
 	t.Helper()
 	holdID := uuid.NewString()
-	if _, err := invent.Reserve(ctx, holdID, userID, catID, qty,
+	if _, _, err := invent.Reserve(ctx, holdID, userID, catID, qty,
 		time.Now().Add(10*time.Minute).UTC()); err != nil {
 		t.Fatalf("reserve: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestOrderSaga(t *testing.T) {
 		holdID := reserve(t, ctx, invent, user.ID, catID, 2)
 
 		gw := stubGateway{outcome: func(string) (string, error) { return "ch_ok", nil }}
-		svc := service.NewOrderService(orders, holds, invent, gw, nil)
+		svc := service.NewOrderService(orders, holds, invent, gw, nil, nil)
 
 		key := uuid.NewString()
 		o, created, err := svc.Create(ctx, user, holdID, key)
@@ -136,7 +136,7 @@ func TestOrderSaga(t *testing.T) {
 		gw := stubGateway{outcome: func(string) (string, error) {
 			return "", domain.ErrPaymentDeclined
 		}}
-		svc := service.NewOrderService(orders, holds, invent, gw, nil)
+		svc := service.NewOrderService(orders, holds, invent, gw, nil, nil)
 
 		key := uuid.NewString()
 		_, _, err := svc.Create(ctx, user, holdID, key)
@@ -180,7 +180,7 @@ func TestOrderSaga(t *testing.T) {
 		gw := stubGateway{outcome: func(string) (string, error) {
 			return "", domain.ErrGatewayTimeout
 		}}
-		svc := service.NewOrderService(orders, holds, invent, gw, nil)
+		svc := service.NewOrderService(orders, holds, invent, gw, nil, nil)
 
 		key := uuid.NewString()
 		_, _, err := svc.Create(ctx, user, holdID, key)
@@ -222,7 +222,7 @@ func TestOrderSaga(t *testing.T) {
 		holdID := reserve(t, ctx, invent, user.ID, catID, 1)
 
 		gw := stubGateway{outcome: func(string) (string, error) { return "ch_ok", nil }}
-		svc := service.NewOrderService(orders, holds, invent, gw, nil)
+		svc := service.NewOrderService(orders, holds, invent, gw, nil, nil)
 
 		key := uuid.NewString()
 
