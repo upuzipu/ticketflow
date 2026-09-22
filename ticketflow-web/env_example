@@ -1,0 +1,8 @@
+# REST
+NEXT_PUBLIC_API_BASE_URL=/api
+
+# WS
+NEXT_PUBLIC_WS_ORIGIN=ws://localhost:8080
+
+# куда проксировать /api в dev
+API_ORIGIN=http://localhost:8080
