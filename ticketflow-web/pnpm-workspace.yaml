@@ -1,2 +1,6 @@
 allowBuilds:
   unrs-resolver: true
+packages:
+  - '.'
+onlyBuiltDependencies:
+  - unrs-resolver

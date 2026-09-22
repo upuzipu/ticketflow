@@ -12,6 +12,15 @@
     "typecheck": "tsc --noEmit",
     "prepare": "cd .. && husky ticketflow-web/.husky"
   },
+  "lint-staged": {
+    "*.{ts,tsx}": [
+      "prettier --write",
+      "eslint --fix"
+    ],
+    "*.{json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
   "packageManager": "pnpm@12.5.1",
   "dependencies": {
     "next": "15.5.25",
