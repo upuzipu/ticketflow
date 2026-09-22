@@ -14,8 +14,8 @@ const unbounded = Unbounded({
 });
 
 export const metadata: Metadata = {
-  title: { default: 'TicketFlow — билеты вживую', template: '%s · TicketFlow' },
-  description: 'Покупка билетов с живыми остатками и честным таймером брони.',
+  title: { default: 'TicketFlow — live tickets', template: '%s · TicketFlow' },
+  description: 'Buy tickets with live availability and an honest hold timer.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

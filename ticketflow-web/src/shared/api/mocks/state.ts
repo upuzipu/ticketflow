@@ -130,42 +130,42 @@ function seed(): void {
   };
 
   const e1 = mkEvent(
-    'Стендап: Квартальный отчёт',
-    'Вечер юмора о жизни продуктовых команд: спринты, ревью и бессонные релизы.',
+    'Stand-up: Quarterly Report',
+    'An evening of humor about product teams: sprints, reviews and sleepless releases.',
     inMinutes(3 * 24 * 60),
     'published',
   );
-  const e1vip = mkCategory(e1.id, 'VIP-ложа', 600_000, 12);
-  mkCategory(e1.id, 'Fan-zone', 150_000, 120);
-  mkCategory(e1.id, 'Dance', 300_000, 80);
+  const e1vip = mkCategory(e1.id, 'VIP Box', 600_000, 12);
+  mkCategory(e1.id, 'Fan Zone', 150_000, 120);
+  mkCategory(e1.id, 'Dance Floor', 300_000, 80);
   db.soldByCategory.set(e1vip.id, 4);
 
   const e2 = mkEvent(
-    'Камерный джаз-вечер',
-    'Квартет, тёмный зал и два сета живого джаза.',
+    'Chamber Jazz Night',
+    'A quartet, a dark hall and two sets of live jazz.',
     inMinutes(7 * 24 * 60),
     'published',
   );
-  mkCategory(e2.id, 'Партер', 250_000, 60);
-  mkCategory(e2.id, 'Балкон', 120_000, 40);
+  mkCategory(e2.id, 'Stalls', 250_000, 60);
+  mkCategory(e2.id, 'Balcony', 120_000, 40);
 
   const e3 = mkEvent(
-    'Рок-фестиваль «Эхо»',
-    'Три сцены, двенадцать групп, один очень громкий вечер.',
+    'Echo Rock Festival',
+    'Three stages, twelve bands, one very loud evening.',
     inMinutes(30 * 24 * 60),
     'published',
   );
-  const e3last = mkCategory(e3.id, 'Последний сектор', 90_000, 5);
-  mkCategory(e3.id, 'Трибуна', 180_000, 200);
-  db.soldByCategory.set(e3last.id, 3); // почти sold out — для демо 409
+  const e3last = mkCategory(e3.id, 'Last Sector', 90_000, 5);
+  mkCategory(e3.id, 'Grandstand', 180_000, 200);
+  db.soldByCategory.set(e3last.id, 3); // almost sold out — demo for 409
 
   const e4 = mkEvent(
-    'Мастер-класс: Go для фронтендеров',
-    'Черновик: как читать чужой код на Go.',
+    'Workshop: Go for Frontend Developers',
+    "Draft: how to read other people's Go code.",
     inMinutes(14 * 24 * 60),
     'draft',
   );
-  mkCategory(e4.id, 'Зал', 100_000, 30);
+  mkCategory(e4.id, 'Main Hall', 100_000, 30);
 
   const h: MockHold = {
     id: uuid(),
@@ -255,8 +255,15 @@ export function toOrderDto(o: MockOrder, created: boolean): Order {
 }
 
 export function toOrderListItem(o: MockOrder): OrderListItem {
-  const { created: _created, ...rest } = toOrderDto(o, true);
-  return rest;
+  const dto = toOrderDto(o, true);
+  return {
+    id: dto.id,
+    status: dto.status,
+    total_minor: dto.total_minor,
+    currency: dto.currency,
+    hold_id: dto.hold_id,
+    created_at: dto.created_at,
+  };
 }
 
 const b64url = (s: string): string =>

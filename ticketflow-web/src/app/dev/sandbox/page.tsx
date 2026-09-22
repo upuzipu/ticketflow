@@ -6,11 +6,12 @@ import type { Event } from '@/shared/api/types';
 import { api } from '@/shared/api/client';
 import { mocksReady } from '@/shared/api/mocks/enable';
 import { formatMoney } from '@/shared/lib/money';
+import { formatDateTime } from '@/shared/lib/dates';
 
 const SCENARIOS = [
   ['default', 'Happy path'],
-  ['payment-decline', '402: отказ платежа'],
-  ['gateway-timeout', '424: таймаут шлюза'],
+  ['payment-decline', '402: payment declined'],
+  ['gateway-timeout', '424: gateway timeout'],
 ] as const;
 
 export default function SandboxPage() {
@@ -39,10 +40,10 @@ export default function SandboxPage() {
   return (
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">TicketFlow — sandbox</h1>
-      <p className="text-sm opacity-70">Данные из MSW-моков (v1.2). F5 сбрасывает состояние.</p>
+      <p className="text-sm opacity-70">Data from MSW mocks (v1.2). F5 resets the state.</p>
 
       <section className="space-y-1 text-sm">
-        <div className="opacity-70">Сценарий шлюза (влияет на POST /orders и pay):</div>
+        <div className="opacity-70">Gateway scenario (affects POST /orders and pay):</div>
         {SCENARIOS.map(([value, label]) => (
           <button
             key={value}
@@ -54,8 +55,8 @@ export default function SandboxPage() {
         ))}
       </section>
 
-      {error && <p className="text-red-500">Ошибка: {error}</p>}
-      {!events && !error && <p>Загрузка…</p>}
+      {error && <p className="text-red-500">Error: {error}</p>}
+      {!events && !error && <p>Loading…</p>}
 
       <ul className="divide-y">
         {(events ?? []).map((e) => {
@@ -69,11 +70,8 @@ export default function SandboxPage() {
                 {e.title}
               </Link>
               <div className="text-sm opacity-70">
-                {new Date(e.starts_at).toLocaleString('ru-RU', {
-                  dateStyle: 'medium',
-                  timeStyle: 'short',
-                })}
-                {' · от '}
+                {formatDateTime(e.starts_at)}
+                {' · from '}
                 {formatMoney(min, 'RUB')}
               </div>
             </li>

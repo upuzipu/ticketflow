@@ -12,10 +12,10 @@ export function Header() {
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <Button variant="ghost" size="sm" asChild>
-            <Link href="/login">Войти</Link>
+            <Link href="/login">Log in</Link>
           </Button>
           <Button size="sm" asChild>
-            <Link href="/register">Регистрация</Link>
+            <Link href="/register">Sign up</Link>
           </Button>
         </div>
       </div>
