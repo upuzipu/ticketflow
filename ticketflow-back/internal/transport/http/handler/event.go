@@ -31,9 +31,11 @@ type categoryInput struct {
 }
 
 type createEventRequest struct {
-	Title      string          `json:"title"`
-	StartsAt   string          `json:"starts_at"`
-	Categories []categoryInput `json:"categories"`
+	Title       string          `json:"title"`
+	Description string          `json:"description"`
+	StartsAt    string          `json:"starts_at"`
+	ImageURL    string          `json:"image_url"`
+	Categories  []categoryInput `json:"categories"`
 }
 
 // Create handles POST /events.
@@ -66,7 +68,7 @@ func (h *EventHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	actor := &domain.User{ID: user.ID, Role: domain.Role(user.Role)}
-	e, err := h.svc.Create(r.Context(), actor, req.Title, startsAt, categories)
+	e, err := h.svc.Create(r.Context(), actor, req.Title, startsAt, req.ImageURL, req.Description, categories)
 	if err != nil {
 		httpx.RespondError(w, err)
 		return

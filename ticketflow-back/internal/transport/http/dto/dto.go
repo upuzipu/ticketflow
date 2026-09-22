@@ -35,6 +35,7 @@ type Event struct {
 	OrganizerID string           `json:"organizer_id"`
 	Title       string           `json:"title"`
 	Description string           `json:"description,omitempty"`
+	ImageURL    string           `json:"image_url"`
 	StartsAt    time.Time        `json:"starts_at"`
 	Status      string           `json:"status"`
 	Categories  []TicketCategory `json:"categories"`

@@ -13,12 +13,14 @@ const (
 	EventCancelled EventStatus = "cancelled"
 )
 
+// Event is an event in the catalog.
 type Event struct {
 	ID          string
 	OrganizerID string
 	VenueID     string
 	Title       string
 	Description string
+	ImageURL    string
 	StartsAt    time.Time
 	Status      EventStatus
 	Categories  []TicketCategory

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +25,7 @@ func NewEventService(events EventRepository, stats EventStats, cache Availabilit
 }
 
 // Create validates and stores a new event together with its categories.
-func (s *EventService) Create(ctx context.Context, organizer *domain.User, title string, startsAt time.Time, categories []domain.TicketCategory) (*domain.Event, error) {
+func (s *EventService) Create(ctx context.Context, organizer *domain.User, title string, startsAt time.Time, imageURL string, description string, categories []domain.TicketCategory) (*domain.Event, error) {
 	if !organizer.CanCreateEvents() {
 		return nil, fmt.Errorf("%w: not allowed to create events", domain.ErrForbidden)
 	}
@@ -36,6 +37,15 @@ func (s *EventService) Create(ctx context.Context, organizer *domain.User, title
 	}
 	if len(categories) == 0 {
 		return nil, fmt.Errorf("%w: at least one category is required", domain.ErrValidation)
+	}
+	if len(imageURL) > 500 {
+		return nil, fmt.Errorf("%w: image_url must be at most 500 characters", domain.ErrValidation)
+	}
+	if imageURL != "" && !strings.HasPrefix(imageURL, "https://") {
+		return nil, fmt.Errorf("%w: image_url must be an https URL", domain.ErrValidation)
+	}
+	if len(description) > 2000 {
+		return nil, fmt.Errorf("%w: description must be at most 2000 characters", domain.ErrValidation)
 	}
 
 	for _, c := range categories {
@@ -60,6 +70,8 @@ func (s *EventService) Create(ctx context.Context, organizer *domain.User, title
 		ID:          uuid.NewString(),
 		OrganizerID: organizer.ID,
 		Title:       title,
+		Description: description,
+		ImageURL:    imageURL,
 		StartsAt:    startsAt,
 		Status:      domain.EventDraft,
 		Categories:  categories,

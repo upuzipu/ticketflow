@@ -5,14 +5,17 @@ on:
   pull_request:
 
 jobs:
-  build:
+  backend:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ticketflow-back
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: ticketflow-back/go.mod
 
       - name: Build
         run: go build ./...

@@ -1,12 +1,63 @@
+### BACKEND
+
 # secrets
-.env
+ticketflow-back/.env
 
 # IDE
-.idea/
+ticketflow-back/.idea/
 
 # build artifacts
-*.exe
+ticketflow-back/*.exe
 
 # runtime output
-outbox-mails/
-storage/
+ticketflow-back/outbox-mails/
+ticketflow-back/storage/
+
+ticketflow-back/run.ps1
+
+### FRONTEND
+# secrets
+ticketflow-web/.env
+
+# IDE
+ticketflow-web/.idea/
+
+# dependencies
+ticketflow-web/node_modules
+ticketflow-web/.pnp
+ticketflow-web/.pnp.*
+ticketflow-web/.yarn/*
+ticketflow-web/!.yarn/patches
+ticketflow-web/!.yarn/plugins
+ticketflow-web/!.yarn/releases
+ticketflow-web/!.yarn/versions
+
+# testing
+ticketflow-web/coverage
+
+# next.js
+ticketflow-web/.next/
+ticketflow-web/out/
+
+# production
+ticketflow-web/build
+
+# misc
+ticketflow-web/.DS_Store
+ticketflow-web/*.pem
+
+# debug
+ticketflow-web/npm-debug.log*
+ticketflow-web/yarn-debug.log*
+ticketflow-web/yarn-error.log*
+ticketflow-web/.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+ticketflow-web/.env*
+
+# vercel
+ticketflow-web/.vercel
+
+# typescript
+ticketflow-web/*.tsbuildinfo
+ticketflow-web/next-env.d.ts

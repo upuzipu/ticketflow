@@ -43,7 +43,7 @@ func NewServer(
 
 	// --- demo page ---
 	mux.HandleFunc("GET /demo.html", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "deploy/demo.html")
+		http.ServeFile(w, r, "../deploy/demo.html")
 	})
 
 	// --- auth ---
