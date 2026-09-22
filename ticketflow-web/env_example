@@ -6,3 +6,6 @@ NEXT_PUBLIC_WS_ORIGIN=ws://localhost:8080
 
 # куда проксировать /api в dev
 API_ORIGIN=http://localhost:8080
+
+# MSW-моки: enabled = фронт работает без бэка, disabled = бэк через прокси
+NEXT_PUBLIC_API_MOCKING=enabled
