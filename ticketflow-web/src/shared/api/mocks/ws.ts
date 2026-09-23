@@ -3,7 +3,7 @@ import { db, marketMovement, toFrame } from './state';
 
 export const availabilityLink = ws.link('*/ws/events/:id');
 
-const MARKET_TICK_MS = 8_000;
+const MARKET_TICK_MS = 5_000;
 
 export const wsHandlers = [
   availabilityLink.addEventListener('connection', ({ client, params }) => {
