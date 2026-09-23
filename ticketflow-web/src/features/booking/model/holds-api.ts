@@ -8,3 +8,7 @@ export function createHold(eventId: string, body: HoldRequest): Promise<HoldCrea
 export function fetchHold(id: string): Promise<HoldStatusResponse> {
   return api.get(`/holds/${id}`);
 }
+
+export function releaseHold(id: string): Promise<void> {
+  return api.delete(`/holds/${id}`);
+}

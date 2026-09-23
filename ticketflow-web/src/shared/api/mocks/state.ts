@@ -16,6 +16,7 @@ export interface MockUser {
   role: 'buyer' | 'organizer';
   refreshTokens: Set<string>;
 }
+
 export interface MockEvent {
   id: Uuid;
   organizerId: Uuid;
@@ -26,6 +27,7 @@ export interface MockEvent {
   createdAt: Date;
   updatedAt: Date;
 }
+
 export interface MockCategory {
   id: Uuid;
   eventId: Uuid;
@@ -34,6 +36,7 @@ export interface MockCategory {
   currency: string;
   totalQty: number;
 }
+
 export interface MockHold {
   id: Uuid;
   userId: Uuid;
@@ -44,6 +47,7 @@ export interface MockHold {
   expiresAt: Date;
   orderId?: Uuid;
 }
+
 export interface MockOrder {
   id: Uuid;
   userId: Uuid;
@@ -86,43 +90,86 @@ export const heldQty = (categoryId: Uuid): number =>
     .reduce((sum, h) => sum + h.qty, 0);
 export const availableQty = (c: MockCategory): number => c.totalQty - soldQty(c.id) - heldQty(c.id);
 
-const USERS_KEY = 'mock:users';
+const STATE_KEY = 'mock:db';
 
 type StoredUser = Omit<MockUser, 'refreshTokens'> & { refreshTokens: string[] };
+type StoredEvent = Omit<MockEvent, 'startsAt' | 'createdAt' | 'updatedAt'> & {
+  startsAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type StoredHold = Omit<MockHold, 'expiresAt'> & { expiresAt: string };
+type StoredOrder = Omit<MockOrder, 'createdAt'> & { createdAt: string };
 
-export function saveUsers(): void {
+interface StoredState {
+  users: StoredUser[];
+  events: StoredEvent[];
+  categories: MockCategory[];
+  holds: StoredHold[];
+  orders: StoredOrder[];
+  sold: Array<[Uuid, number]>;
+  idempotency: Array<[string, Uuid]>;
+}
+
+export function persistAll(): void {
   if (typeof window === 'undefined') return;
-  const data: StoredUser[] = db.users.map((u) => ({
-    id: u.id,
-    email: u.email,
-    password: u.password,
-    role: u.role,
-    refreshTokens: [...u.refreshTokens],
-  }));
+  const state: StoredState = {
+    users: db.users.map((u) => ({
+      id: u.id,
+      email: u.email,
+      password: u.password,
+      role: u.role,
+      refreshTokens: [...u.refreshTokens],
+    })),
+    events: db.events.map((e) => ({
+      id: e.id,
+      organizerId: e.organizerId,
+      title: e.title,
+      description: e.description,
+      startsAt: e.startsAt.toISOString(),
+      status: e.status,
+      createdAt: e.createdAt.toISOString(),
+      updatedAt: e.updatedAt.toISOString(),
+    })),
+    categories: db.categories,
+    holds: db.holds.map((h) => ({ ...h, expiresAt: h.expiresAt.toISOString() })),
+    orders: db.orders.map((o) => ({ ...o, createdAt: o.createdAt.toISOString() })),
+    sold: [...db.soldByCategory],
+    idempotency: [...db.idempotency],
+  };
   try {
-    sessionStorage.setItem(USERS_KEY, JSON.stringify(data));
+    sessionStorage.setItem(STATE_KEY, JSON.stringify(state));
   } catch {}
 }
 
-function loadUsers(): void {
-  if (typeof window === 'undefined') return;
-  const raw = sessionStorage.getItem(USERS_KEY);
-  if (!raw) return;
-  let saved: StoredUser[];
+function restoreAll(): boolean {
+  if (typeof window === 'undefined') return false;
+  const raw = sessionStorage.getItem(STATE_KEY);
+  if (!raw) return false;
+  let saved: StoredState;
   try {
-    saved = JSON.parse(raw) as StoredUser[];
+    saved = JSON.parse(raw) as StoredState;
   } catch {
-    sessionStorage.removeItem(USERS_KEY);
-    return;
+    sessionStorage.removeItem(STATE_KEY);
+    return false;
   }
-  const emails = new Set(saved.map((u) => u.email));
-  db.users = [
-    ...db.users.filter((u) => !emails.has(u.email)),
-    ...saved.map((u) => ({ ...u, refreshTokens: new Set(u.refreshTokens) })),
-  ];
+  db.users = saved.users.map((u) => ({ ...u, refreshTokens: new Set(u.refreshTokens) }));
+  db.events = saved.events.map((e) => ({
+    ...e,
+    startsAt: new Date(e.startsAt),
+    createdAt: new Date(e.createdAt),
+    updatedAt: new Date(e.updatedAt),
+  }));
+  db.categories = saved.categories;
+  db.holds = saved.holds.map((h) => ({ ...h, expiresAt: new Date(h.expiresAt) }));
+  db.orders = saved.orders.map((o) => ({ ...o, createdAt: new Date(o.createdAt) }));
+  db.soldByCategory = new Map(saved.sold);
+  db.idempotency = new Map(saved.idempotency);
+  return true;
 }
 
 function seed(): void {
+  if (restoreAll()) return;
   const organizer: MockUser = {
     id: ORG_ID,
     email: 'org@tf.dev',
@@ -240,11 +287,7 @@ function seed(): void {
     currency: 'RUB',
     createdAt: new Date(Date.now() - 60_000),
   });
-
-  loadUsers();
 }
-
-seed();
 
 export function toEventDto(e: MockEvent): Event {
   return {
@@ -330,7 +373,7 @@ export function issueTokens(user: MockUser): { access: string; refresh: string }
   };
   const refresh = sign(7 * 24 * 60 * 60);
   user.refreshTokens.add(refresh);
-  saveUsers();
+  persistAll();
   return { access: sign(15 * 60), refresh };
 }
 
@@ -348,6 +391,7 @@ export function userFromRequest(req: Request): MockUser | null {
 }
 
 const buckets = new Map<string, number[]>();
+
 export function rateLimit(
   key: string,
   max: number,
@@ -389,6 +433,7 @@ export function keysetPage<T>(
 }
 
 export type MockScenario = 'default' | 'payment-decline' | 'gateway-timeout';
+
 export function currentScenario(): MockScenario {
   const v = typeof window !== 'undefined' ? window.localStorage.getItem('mock:scenario') : null;
   return v === 'payment-decline' || v === 'gateway-timeout' ? v : 'default';
@@ -400,4 +445,9 @@ export function marketMovement(eventId: Uuid): void {
   const c = cats[Math.floor(Math.random() * cats.length)];
   const qty = Math.min(availableQty(c), 1 + Math.floor(Math.random() * 3));
   db.soldByCategory.set(c.id, soldQty(c.id) + qty);
+}
+
+seed();
+if (typeof window !== 'undefined') {
+  setInterval(persistAll, 1000);
 }

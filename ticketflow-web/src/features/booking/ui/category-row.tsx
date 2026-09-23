@@ -2,9 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/shared/api/client';
 import { mocksReady } from '@/shared/api/mocks/enable';
+import { useCheckoutStore } from '@/features/checkout/model/checkout-store';
 import type { CategoryAvailability, HoldCreated } from '@/shared/api/types';
 import { formatMoney } from '@/shared/lib/money';
 import { Button } from '@/shared/ui/button';
@@ -13,14 +14,15 @@ import { QuantityStepper } from '@/shared/ui/quantity-stepper';
 import { useAuthStore } from '@/features/auth/model/auth-store';
 import { createHold } from '@/features/booking/model/holds-api';
 
-export function CategoryRow({
-  category,
-  eventId,
-}: {
+interface CategoryRowProps {
   category: CategoryAvailability;
   eventId: string;
-}) {
+  eventTitle: string;
+}
+
+export function CategoryRow({ category, eventId, eventTitle }: CategoryRowProps) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const refreshToken = useAuthStore((s) => s.refreshToken);
   const [qty, setQty] = useState(1);
   const [error, setError] = useState<string | null>(null);
@@ -30,11 +32,24 @@ export function CategoryRow({
       await mocksReady;
       return createHold(eventId, input);
     },
-    onSuccess: (data: HoldCreated) => {
-      router.push(`/checkout?hold=${data.hold_id}`);
+    onSuccess: (data: HoldCreated, input) => {
+      useCheckoutStore.getState().setHold({
+        holdId: data.hold_id,
+        eventId,
+        eventTitle,
+        categoryName: category.name,
+        qty: input.qty,
+        expiresAt: data.expires_at,
+        serverTime: data.server_time,
+        idempotencyKey: crypto.randomUUID(),
+        unitPriceMinor: category.price_minor,
+        currency: category.currency,
+      });
+      router.push('/checkout');
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 409) {
+        void queryClient.invalidateQueries({ queryKey: ['availability', eventId] });
         setError('Tickets just sold out — availability will update shortly.');
       } else if (err instanceof ApiError && err.status === 401) {
         setError('Please log in to book tickets.');

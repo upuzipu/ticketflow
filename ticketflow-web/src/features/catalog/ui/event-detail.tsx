@@ -80,7 +80,7 @@ export function EventDetail({ id }: { id: string }) {
           </div>
         )}
         {availability?.map((c) => (
-          <CategoryRow key={c.category_id} category={c} eventId={id} />
+          <CategoryRow key={c.category_id} category={c} eventId={id} eventTitle={event.title} />
         ))}
       </section>
     </main>
