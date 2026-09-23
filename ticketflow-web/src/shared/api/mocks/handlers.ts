@@ -128,6 +128,7 @@ export const handlers = [
       organizerId: user.id,
       title: body.title,
       description: body.description,
+      image_url: body.image_url,
       startsAt: new Date(body.starts_at),
       status: 'draft' as const,
       createdAt: new Date(),

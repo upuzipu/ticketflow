@@ -1,19 +1,25 @@
 'use client';
 
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError } from '@/shared/api/client';
 import { mocksReady } from '@/shared/api/mocks/enable';
 import { fetchEvent } from '@/entities/event/api/events-api';
 import { useAvailability } from '@/entities/event/model/use-availability';
 import { WsStatus } from '@/entities/event/ui/ws-status';
 import { CategoryRow } from '@/features/booking/ui/category-row';
+import { publishEvent } from '@/features/organizer/model/organizer-api';
+import { useAuthStore } from '@/features/auth/model/auth-store';
 import { coverGradient } from '@/entities/event/lib/cover';
 import { formatDateTime } from '@/shared/lib/dates';
 import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
 import { Skeleton } from '@/shared/ui/skeleton';
 
 export function EventDetail({ id }: { id: string }) {
+  const queryClient = useQueryClient();
+  const userId = useAuthStore((s) => s.userId);
+
   const { query: eventQuery, wsState } = useAvailability(id);
   const {
     data: event,
@@ -24,6 +30,20 @@ export function EventDetail({ id }: { id: string }) {
     queryFn: async () => {
       await mocksReady;
       return fetchEvent(id);
+    },
+  });
+
+  const isOwnerDraft =
+    event?.status === 'draft' && userId !== null && event.organizer_id === userId;
+
+  const publish = useMutation({
+    mutationFn: async () => {
+      await mocksReady;
+      return publishEvent(id);
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['event', id] });
+      void queryClient.invalidateQueries({ queryKey: ['events', 'mine'] });
     },
   });
 
@@ -68,7 +88,17 @@ export function EventDetail({ id }: { id: string }) {
         {event.status === 'draft' && <Badge variant="warning">Draft</Badge>}
         <span className="text-sm text-muted">{formatDateTime(event.starts_at)}</span>
         <WsStatus state={wsState} />
+        {isOwnerDraft && (
+          <Button size="sm" disabled={publish.isPending} onClick={() => publish.mutate()}>
+            {publish.isPending ? 'Publishing…' : 'Publish'}
+          </Button>
+        )}
       </div>
+      {publish.isError && (
+        <p className="text-sm text-danger">
+          {publish.error instanceof Error ? publish.error.message : 'Failed to publish'}
+        </p>
+      )}
       <h1 className="font-display text-3xl font-semibold">{event.title}</h1>
       {event.description && <p className="text-muted">{event.description}</p>}
       <section className="space-y-2">

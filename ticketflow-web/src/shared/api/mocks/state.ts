@@ -22,6 +22,7 @@ export interface MockEvent {
   organizerId: Uuid;
   title: string;
   description?: string;
+  image_url?: string;
   startsAt: Date;
   status: 'draft' | 'published' | 'cancelled';
   createdAt: Date;
@@ -126,6 +127,7 @@ export function persistAll(): void {
       organizerId: e.organizerId,
       title: e.title,
       description: e.description,
+      image_url: e.image_url,
       startsAt: e.startsAt.toISOString(),
       status: e.status,
       createdAt: e.createdAt.toISOString(),
@@ -295,6 +297,7 @@ export function toEventDto(e: MockEvent): Event {
     organizer_id: e.organizerId,
     title: e.title,
     ...(e.description ? { description: e.description } : {}),
+    ...(e.image_url ? { image_url: e.image_url } : {}),
     starts_at: e.startsAt.toISOString(),
     status: e.status,
     categories: db.categories

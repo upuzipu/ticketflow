@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { logoutUser } from '../lib/auth-api';
+import { useAuthStore } from '@/features/auth/model/auth-store';
+import { sessionRestore } from '@/features/auth/lib/use-session-restore';
 import { Button } from '@/shared/ui/button';
 import { Badge } from '@/shared/ui/badge';
-import { useAuthStore } from '@/features/auth/model/auth-store';
-import { sessionRestore, useSessionRestore } from '@/features/auth/lib/use-session-restore';
+import { logoutUser } from '@/shared/lib/auth-api';
 
 export function AuthNav() {
   const router = useRouter();
@@ -16,7 +16,6 @@ export function AuthNav() {
   const [ready, setReady] = useState(false);
   const [busy, setBusy] = useState(false);
 
-  useSessionRestore();
   useEffect(() => {
     let cancelled = false;
     void sessionRestore().finally(() => {
@@ -54,6 +53,12 @@ export function AuthNav() {
       {userRole && (
         <Badge variant={userRole === 'organizer' ? 'accent' : 'muted'}>{userRole}</Badge>
       )}
+      <Link
+        href={userRole === 'organizer' ? '/organizer' : '/orders'}
+        className="text-sm text-muted transition-colors hover:text-foreground"
+      >
+        {userRole === 'organizer' ? 'My events' : 'My orders'}
+      </Link>
       <Button variant="ghost" size="sm" disabled={busy} onClick={() => void logout()}>
         Log out
       </Button>
