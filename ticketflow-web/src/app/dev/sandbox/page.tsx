@@ -41,7 +41,11 @@ export default function SandboxPage() {
     <main className="mx-auto max-w-2xl space-y-4 p-6">
       <h1 className="text-2xl font-semibold">TicketFlow — sandbox</h1>
       <p className="text-sm opacity-70">Data from MSW mocks (v1.2). F5 resets the state.</p>
-
+      <p className="text-sm">
+        <Link href="/dev/sandbox/auth" className="text-accent hover:underline">
+          Auth testing panel →
+        </Link>
+      </p>
       <section className="space-y-1 text-sm">
         <div className="opacity-70">Gateway scenario (affects POST /orders and pay):</div>
         {SCENARIOS.map(([value, label]) => (

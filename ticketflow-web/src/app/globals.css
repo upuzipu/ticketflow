@@ -3,31 +3,35 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #f6f7fb;
+  --background: #f4f7f7;
   --surface: #ffffff;
-  --foreground: #14161d;
-  --muted: #626a7e;
-  --border: #e4e7f0;
-  --accent: #6d4aff;
+  --foreground: #10201f;
+  --muted: #5c7371;
+  --border: #dfe9e8;
+  --accent: #2563eb;
   --accent-foreground: #ffffff;
+  --accent-secondary: #2e9492;
+  --accent-tertiary: #225e5c;
   --success: #0b9e77;
   --warning: #b45309;
   --danger: #e11d48;
-  --ring: #6d4aff;
+  --ring: #2563eb;
 }
 
 .dark {
-  --background: #0b0d12;
-  --surface: #141821;
-  --foreground: #e9ebf3;
-  --muted: #99a0b4;
-  --border: #232936;
-  --accent: #7c5cff;
+  --background: #0a1414;
+  --surface: #12201f;
+  --foreground: #e6efee;
+  --muted: #94aaa8;
+  --border: #1e302f;
+  --accent: #3b82f6;
   --accent-foreground: #ffffff;
+  --accent-secondary: #2e9492;
+  --accent-tertiary: #a5c1c0;
   --success: #2dd4a7;
   --warning: #f5a524;
   --danger: #f43f5e;
-  --ring: #7c5cff;
+  --ring: #3b82f6;
 }
 
 @theme inline {
@@ -38,6 +42,8 @@
   --color-border: var(--border);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
+  --color-accent-secondary: var(--accent-secondary);
+  --color-accent-tertiary: var(--accent-tertiary);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-danger: var(--danger);

@@ -23,6 +23,7 @@ import {
   userFromRequest,
   uuid,
   type MockOrder,
+  saveUsers,
 } from './state';
 
 const err = (status: number, msg: string, headers?: Record<string, string>) =>
@@ -88,6 +89,7 @@ export const handlers = [
   http.post('/api/auth/logout', async ({ request }) => {
     const body = (await request.json().catch(() => null)) as RefreshRequest | null;
     for (const u of db.users) u.refreshTokens.delete(body?.refresh_token ?? '');
+    saveUsers();
     return new HttpResponse(null, { status: 204 });
   }),
 
@@ -384,7 +386,6 @@ export const handlers = [
     return json(toOrderDto(order, true));
   }),
 
-  // ВАЖНО: mine — до :id, иначе MSW сматчит 'mine' как uuid
   http.get('/api/orders/mine', ({ request }) => {
     const user = userFromRequest(request);
     if (!user) return err(401, 'missing or invalid token');

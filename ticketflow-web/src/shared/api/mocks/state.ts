@@ -70,6 +70,10 @@ export const db = {
 export const uuid = (): Uuid => crypto.randomUUID();
 export const isUuid = (v: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+const ORG_ID = '00000000-0000-4000-8000-000000000001';
+const BUYER_ID = '00000000-0000-4000-8000-000000000002';
+
 const inMinutes = (m: number): Date => new Date(Date.now() + m * 60_000);
 
 export const soldQty = (categoryId: Uuid): number => db.soldByCategory.get(categoryId) ?? 0;
@@ -82,16 +86,52 @@ export const heldQty = (categoryId: Uuid): number =>
     .reduce((sum, h) => sum + h.qty, 0);
 export const availableQty = (c: MockCategory): number => c.totalQty - soldQty(c.id) - heldQty(c.id);
 
+const USERS_KEY = 'mock:users';
+
+type StoredUser = Omit<MockUser, 'refreshTokens'> & { refreshTokens: string[] };
+
+export function saveUsers(): void {
+  if (typeof window === 'undefined') return;
+  const data: StoredUser[] = db.users.map((u) => ({
+    id: u.id,
+    email: u.email,
+    password: u.password,
+    role: u.role,
+    refreshTokens: [...u.refreshTokens],
+  }));
+  try {
+    sessionStorage.setItem(USERS_KEY, JSON.stringify(data));
+  } catch {}
+}
+
+function loadUsers(): void {
+  if (typeof window === 'undefined') return;
+  const raw = sessionStorage.getItem(USERS_KEY);
+  if (!raw) return;
+  let saved: StoredUser[];
+  try {
+    saved = JSON.parse(raw) as StoredUser[];
+  } catch {
+    sessionStorage.removeItem(USERS_KEY);
+    return;
+  }
+  const emails = new Set(saved.map((u) => u.email));
+  db.users = [
+    ...db.users.filter((u) => !emails.has(u.email)),
+    ...saved.map((u) => ({ ...u, refreshTokens: new Set(u.refreshTokens) })),
+  ];
+}
+
 function seed(): void {
   const organizer: MockUser = {
-    id: uuid(),
+    id: ORG_ID,
     email: 'org@tf.dev',
     password: 'password',
     role: 'organizer',
     refreshTokens: new Set(),
   };
   const buyer: MockUser = {
-    id: uuid(),
+    id: BUYER_ID,
     email: 'buyer@tf.dev',
     password: 'password',
     role: 'buyer',
@@ -157,7 +197,7 @@ function seed(): void {
   );
   const e3last = mkCategory(e3.id, 'Last Sector', 90_000, 5);
   mkCategory(e3.id, 'Grandstand', 180_000, 200);
-  db.soldByCategory.set(e3last.id, 3); // almost sold out — demo for 409
+  db.soldByCategory.set(e3last.id, 3);
 
   const e4 = mkEvent(
     'Workshop: Go for Frontend Developers',
@@ -190,7 +230,10 @@ function seed(): void {
     currency: 'RUB',
     createdAt: new Date(Date.now() - 60_000),
   });
+
+  loadUsers();
 }
+
 seed();
 
 export function toEventDto(e: MockEvent): Event {
@@ -276,7 +319,8 @@ export function issueTokens(user: MockUser): { access: string; refresh: string }
     return `${b64url(JSON.stringify({ alg: 'none', typ: 'JWT' }))}.${b64url(JSON.stringify(payload))}.mock`;
   };
   const refresh = sign(7 * 24 * 60 * 60);
-  user.refreshTokens.add(refresh); // ротация: активный refresh один
+  user.refreshTokens.add(refresh);
+  saveUsers();
   return { access: sign(15 * 60), refresh };
 }
 

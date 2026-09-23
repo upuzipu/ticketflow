@@ -1,6 +1,6 @@
 import Link from 'next/link';
-import { Button } from '@/shared/ui/button';
 import { ThemeToggle } from '@/shared/ui/theme-toggle';
+import { AuthNav } from '@/shared/ui/auth-nav';
 
 export function Header() {
   return (
@@ -11,12 +11,7 @@ export function Header() {
         </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button variant="ghost" size="sm" asChild>
-            <Link href="/login">Log in</Link>
-          </Button>
-          <Button size="sm" asChild>
-            <Link href="/register">Sign up</Link>
-          </Button>
+          <AuthNav />
         </div>
       </div>
     </header>
