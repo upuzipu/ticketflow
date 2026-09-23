@@ -61,3 +61,5 @@ ticketflow-web/.vercel
 # typescript
 ticketflow-web/*.tsbuildinfo
 ticketflow-web/next-env.d.ts
+ticketflow-web/test-results
+ticketflow-web/playwright-report
