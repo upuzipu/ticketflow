@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { TokenPair, UserRole } from '@/shared/api/types';
+import { decodeAccess } from '@/features/auth/lib/decode-access';
 
 interface AuthState {
   accessToken: string | null;
@@ -9,21 +10,6 @@ interface AuthState {
   userRole: UserRole | null;
   setTokens(pair: TokenPair): void;
   clear(): void;
-}
-
-type AccessClaims = { sub: string; role: UserRole };
-
-function decodeAccess(access: string): AccessClaims | null {
-  try {
-    const [, payload] = access.split('.');
-    const json = atob(payload.replace(/-/g, '+').replace(/_/g, '/'));
-    const claims = JSON.parse(json) as { sub?: string; role?: string; exp?: number };
-    if (!claims.sub || (claims.role !== 'buyer' && claims.role !== 'organizer')) return null;
-    if ((claims.exp ?? 0) * 1000 < Date.now()) return null;
-    return { sub: claims.sub, role: claims.role };
-  } catch {
-    return null;
-  }
 }
 
 export const useAuthStore = create<AuthState>()(

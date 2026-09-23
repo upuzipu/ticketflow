@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { computeSecondsLeft } from '../lib/hold-clock';
 
 export function useHoldTimer(expiresAt: string | null, serverTime: string | null): number | null {
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -10,10 +11,8 @@ export function useHoldTimer(expiresAt: string | null, serverTime: string | null
       setSecondsLeft(null);
       return;
     }
-    const offset = serverTime ? Date.parse(serverTime) - Date.now() : 0;
-    const deadline = Date.parse(expiresAt);
     const tick = () => {
-      setSecondsLeft(Math.max(0, Math.floor((deadline - (Date.now() + offset)) / 1000)));
+      setSecondsLeft(computeSecondsLeft(expiresAt, serverTime, Date.now()));
     };
     tick();
     const timer = setInterval(tick, 1000);

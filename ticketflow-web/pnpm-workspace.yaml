@@ -1,3 +1,8 @@
 allowBuilds:
   msw: false
   unrs-resolver: false
+onlyBuiltDependencies:
+  - unrs-resolver
+ignoredBuiltDependencies:
+  - msw
+  - esbuild

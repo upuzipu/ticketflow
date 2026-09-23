@@ -13,7 +13,6 @@ import {
   db,
   isUuid,
   issueTokens,
-  keysetPage,
   rateLimit,
   soldQty,
   toAvailability,
@@ -25,6 +24,7 @@ import {
   type MockOrder,
   persistAll,
 } from './state';
+import { keysetPage } from '@/shared/lib/keyset';
 
 const err = (status: number, msg: string, headers?: Record<string, string>) =>
   HttpResponse.json({ error: `domain: ${msg}` }, { status, headers });

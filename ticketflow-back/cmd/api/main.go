@@ -77,7 +77,7 @@ func run() error {
 	hub := realtime.NewHub()
 	broadcaster := realtime.NewRedisBroadcaster(redisClient.Raw(), hub, eventsRepo.Availability, log)
 
-	// --- holds (before orders: order service needs holdsRepo & inventory) ---
+	// --- holds ---
 	holdsRepo := postgres.NewHoldRepository(pool)
 	inventory := postgres.NewInventory(pool)
 
@@ -87,7 +87,7 @@ func run() error {
 	gateway := mock.NewGateway(300 * time.Millisecond)
 	orderService := service.NewOrderService(ordersRepo, holdsRepo, inventory, gateway, availCache, broadcaster)
 
-	// --- holds service (needs ordersRepo for order_id lookup) ---
+	// --- holds service ---
 	holdService := service.NewHoldService(holdsRepo, inventory, availCache, broadcaster, ordersRepo)
 
 	// --- kafka producer ---
@@ -97,7 +97,7 @@ func run() error {
 	}
 	defer producer.Close()
 
-	// --- kafka consumer (ticket codes) ---
+	// --- kafka consumer ---
 	ticketsConsumer, err := kafka.NewConsumer(
 		[]string{"localhost:9092"},
 		"ticketflow-tickets",
@@ -143,7 +143,7 @@ func run() error {
 		return broadcaster.Run(gctx)
 	})
 	g.Go(func() error {
-		<-ctx.Done() // OS signal: Ctrl+C or SIGTERM
+		<-ctx.Done()
 		log.Info("shutdown signal received")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

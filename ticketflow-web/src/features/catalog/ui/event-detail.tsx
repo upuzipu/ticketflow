@@ -15,6 +15,7 @@ import { formatDateTime } from '@/shared/lib/dates';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
 import { Skeleton } from '@/shared/ui/skeleton';
+import { AvailabilityAnnouncer } from '@/entities/event/ui/availability-announcer';
 
 export function EventDetail({ id }: { id: string }) {
   const queryClient = useQueryClient();
@@ -109,6 +110,7 @@ export function EventDetail({ id }: { id: string }) {
             <Skeleton className="h-20 w-full" />
           </div>
         )}
+        <AvailabilityAnnouncer categories={availability ?? []} />
         {availability?.map((c) => (
           <CategoryRow key={c.category_id} category={c} eventId={id} eventTitle={event.title} />
         ))}

@@ -12,26 +12,20 @@ export function refreshTokens(): Promise<void> {
     const { refreshToken, setTokens, clear } = useAuthStore.getState();
     if (!refreshToken) throw new Error('no refresh token');
 
-    console.info('[auth] refresh: start');
     const res = await fetch(`${BASE}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
     });
-    console.info('[auth] refresh:', res.status);
 
     if (!res.ok) {
       if (res.status === 401) {
         clear();
-        console.warn('[auth] refresh rejected (401) — session cleared');
-      } else {
-        console.warn('[auth] refresh failed transiently — session kept');
       }
       throw new Error(`refresh failed: ${res.status}`);
     }
 
     setTokens((await res.json()) as TokenPair);
-    console.info('[auth] refresh: ok, new pair stored');
   })().finally(() => {
     inFlight = null;
   });
