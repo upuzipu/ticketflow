@@ -195,6 +195,16 @@ function seed(): void {
     inMinutes(30 * 24 * 60),
     'published',
   );
+  for (let i = 1; i <= 9; i++) {
+    const mic = mkEvent(
+      `Open Mic Night #${i}`,
+      'A cozy evening of short sets, new faces and one surprise headliner.',
+      inMinutes(21 + i),
+      'published',
+    );
+    mkCategory(mic.id, 'Standard', 80_000 + i * 5_000, 40);
+    mkCategory(mic.id, 'Premium', 150_000 + i * 10_000, 10);
+  }
   const e3last = mkCategory(e3.id, 'Last Sector', 90_000, 5);
   mkCategory(e3.id, 'Grandstand', 180_000, 200);
   db.soldByCategory.set(e3last.id, 3);

@@ -1,18 +1,31 @@
 import Link from 'next/link';
+import { Button } from '@/shared/ui/button';
+import { UpcomingEvents } from '@/features/catalog/ui/upcoming-events';
 
 export default function Home() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col items-center justify-center gap-4 p-6">
-      <h1 className="text-3xl font-semibold">TicketFlow</h1>
-      <p className="text-sm opacity-60">
-        Phase 0: scaffold, v1.2 contract, mocks. The landing page ships in Phase 3.
-      </p>
-      <Link
-        href="/dev/sandbox"
-        className="rounded-md bg-violet-600 px-4 py-2 text-sm text-white hover:bg-violet-500"
-      >
-        Open sandbox
-      </Link>
+    <main>
+      <section className="mx-auto max-w-6xl space-y-4 px-6 pb-10 pt-20 text-center">
+        <h1 className="font-display text-4xl font-bold sm:text-5xl">Tickets, live and honest</h1>
+        <p className="mx-auto max-w-xl text-muted">
+          Real-time availability, a 10-minute hold and an idempotent checkout. No overselling, no
+          surprises.
+        </p>
+        <div className="flex justify-center">
+          <Button size="lg" asChild>
+            <Link href="/events">Browse events</Link>
+          </Button>
+        </div>
+      </section>
+      <section className="mx-auto max-w-6xl space-y-4 px-6 pb-20">
+        <div className="flex items-center justify-between">
+          <h2 className="font-display text-xl font-semibold">Upcoming events</h2>
+          <Link href="/events" className="text-sm text-accent hover:underline">
+            View all →
+          </Link>
+        </div>
+        <UpcomingEvents limit={3} />
+      </section>
     </main>
   );
 }

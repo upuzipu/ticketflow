@@ -9,6 +9,11 @@ export function Header() {
         <Link href="/" className="font-display text-lg font-semibold tracking-tight">
           <span className="text-accent">Ticket</span>Flow
         </Link>
+        <nav className="ml-6 flex items-center gap-4 text-sm">
+          <Link href="/events" className="text-muted transition-colors hover:text-foreground">
+            Events
+          </Link>
+        </nav>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <AuthNav />

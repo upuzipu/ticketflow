@@ -5,6 +5,7 @@ import { MocksProvider } from '@/shared/api/mocks/MocksProvider';
 import { Header } from '@/widgets/header/ui/header';
 import { Footer } from '@/widgets/footer/ui/footer';
 import './globals.css';
+import { QueryProvider } from '@/shared/api/query-provider';
 
 const inter = Inter({ subsets: ['latin', 'cyrillic'], variable: '--font-inter', display: 'swap' });
 const unbounded = Unbounded({
@@ -23,13 +24,15 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ru" suppressHydrationWarning className={`${inter.variable} ${unbounded.variable}`}>
       <body>
         <ThemeProvider>
-          <MocksProvider>
-            <div className="flex min-h-dvh flex-col">
-              <Header />
-              <main className="flex-1">{children}</main>
-              <Footer />
-            </div>
-          </MocksProvider>
+          <QueryProvider>
+            <MocksProvider>
+              <div className="flex min-h-dvh flex-col">
+                <Header />
+                <main className="flex-1">{children}</main>
+                <Footer />
+              </div>
+            </MocksProvider>
+          </QueryProvider>
         </ThemeProvider>
       </body>
     </html>
