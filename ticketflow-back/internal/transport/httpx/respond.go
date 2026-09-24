@@ -3,6 +3,7 @@ package httpx
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/upuzipu/ticketflow/internal/domain"
@@ -38,6 +39,8 @@ func RespondError(w http.ResponseWriter, err error) {
 			RespondJSON(w, status, errorBody{Error: sentinel.Error()})
 			return
 		}
+		slog.Error("unmapped error", "err", err)
+		RespondJSON(w, http.StatusInternalServerError, errorBody{Error: "internal error"})
 	}
 	RespondJSON(w, http.StatusInternalServerError, errorBody{Error: "internal error"})
 }

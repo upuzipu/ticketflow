@@ -6,7 +6,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/upuzipu/ticketflow/internal/observability/metrics"
 )
 
 type responseRecorder struct {
@@ -28,13 +31,8 @@ func (r *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return hj.Hijack()
 }
 
-// Unwrap exposes the underlying ResponseWriter so that interfaces
-// beyond ResponseWriter (e.g. http.Hijacker for WebSockets) remain
-// reachable. Supported by http.ResponseController semantics.
-func (r *responseRecorder) Unwrap() http.ResponseWriter {
-	return r.ResponseWriter
-}
-
+// Logging returns a middleware that logs every request
+// and records HTTP metrics. Single wrapper: one WriteHeader per request.
 func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -49,6 +47,11 @@ func Logging(log *slog.Logger) func(http.Handler) http.Handler {
 				"status", rec.status,
 				"duration", time.Since(start).String(),
 			)
+			metrics.HTTPRequestsTotal.WithLabelValues(
+				r.URL.Path, r.Method, strconv.Itoa(rec.status),
+			).Inc()
+			metrics.HTTPDuration.WithLabelValues(r.URL.Path).
+				Observe(time.Since(start).Seconds())
 		})
 	}
 }

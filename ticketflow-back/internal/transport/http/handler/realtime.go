@@ -36,8 +36,11 @@ func NewRealtimeHandler(hub *realtime.Hub,
 func (h *RealtimeHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
 
-	conn, err := websocket.Accept(w, r, nil)
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		OriginPatterns: []string{"localhost:3000", "localhost:8080", "127.0.0.1:3000"},
+	})
 	if err != nil {
+		h.log.Info("ws handshake rejected", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"), "err", err)
 		return
 	}
 	defer conn.Close(websocket.StatusInternalError, "closing")

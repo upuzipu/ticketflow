@@ -34,8 +34,14 @@ func (r *EventRepository) Create(ctx context.Context, e *domain.Event) error {
 	const eventSQL = `
         INSERT INTO events (id, organizer_id, venue_id, title, description, starts_at, status, image_url)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+
+	var venueID any
+	if e.VenueID != "" {
+		venueID = e.VenueID
+	}
+
 	if _, err := tx.Exec(ctx, eventSQL,
-		e.ID, e.OrganizerID, e.VenueID, e.Title, e.Description, e.StartsAt, string(e.Status), e.ImageURL); err != nil {
+		e.ID, e.OrganizerID, venueID, e.Title, e.Description, e.StartsAt, string(e.Status), e.ImageURL); err != nil {
 		return fmt.Errorf("insert event: %w", err)
 	}
 
@@ -71,12 +77,13 @@ func (r *EventRepository) ByID(ctx context.Context, id string) (*domain.Event, e
          WHERE id = $1`
 
 	var (
-		e      domain.Event
-		status string
+		e       domain.Event
+		status  string
+		venueID *string
 	)
 
 	err := r.pool.p.QueryRow(ctx, sql, id).
-		Scan(&e.ID, &e.OrganizerID, &e.VenueID, &e.Title, &e.Description, &e.ImageURL,
+		Scan(&e.ID, &e.OrganizerID, &venueID, &e.Title, &e.Description, &e.ImageURL,
 			&e.StartsAt, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, domain.ErrNotFound
@@ -85,6 +92,9 @@ func (r *EventRepository) ByID(ctx context.Context, id string) (*domain.Event, e
 		return nil, fmt.Errorf("query event by id: %w", err)
 	}
 	e.Status = domain.EventStatus(status)
+	if venueID != nil {
+		e.VenueID = *venueID
+	}
 
 	categories, err := r.loadCategories(ctx, e.ID)
 	if err != nil {
@@ -180,14 +190,18 @@ func (r *EventRepository) List(ctx context.Context, f domain.EventFilter) ([]dom
 	events := make([]domain.Event, 0, f.Limit)
 	for rows.Next() {
 		var (
-			e      domain.Event
-			status string
+			e       domain.Event
+			status  string
+			venueID *string
 		)
-		if err := rows.Scan(&e.ID, &e.OrganizerID, &e.VenueID, &e.Title, &e.Description,
+		if err := rows.Scan(&e.ID, &e.OrganizerID, &venueID, &e.Title, &e.Description,
 			&e.ImageURL, &e.StartsAt, &status); err != nil {
 			return nil, "", fmt.Errorf("scan event: %w", err)
 		}
 		e.Status = domain.EventStatus(status)
+		if venueID != nil {
+			e.VenueID = *venueID
+		}
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -237,14 +251,18 @@ func (r *EventRepository) ListByOrganizer(ctx context.Context, organizerID strin
 	events := make([]domain.Event, 0, limit)
 	for rows.Next() {
 		var (
-			e      domain.Event
-			status string
+			e       domain.Event
+			status  string
+			venueID *string
 		)
-		if err := rows.Scan(&e.ID, &e.OrganizerID, &e.VenueID, &e.Title, &e.Description,
+		if err := rows.Scan(&e.ID, &e.OrganizerID, &venueID, &e.Title, &e.Description,
 			&e.ImageURL, &e.StartsAt, &status); err != nil {
 			return nil, "", fmt.Errorf("scan event: %w", err)
 		}
 		e.Status = domain.EventStatus(status)
+		if venueID != nil {
+			e.VenueID = *venueID
+		}
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {

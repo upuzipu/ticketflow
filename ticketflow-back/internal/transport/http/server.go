@@ -81,7 +81,7 @@ func NewServer(
 	return &Server{
 		srv: &http.Server{
 			Addr:              addr,
-			Handler:           middleware.Logging(log)(middleware.Metrics(mux)),
+			Handler:           middleware.Logging(log)(mux),
 			ReadHeaderTimeout: 5 * time.Second,
 			ReadTimeout:       10 * time.Second,
 			WriteTimeout:      15 * time.Second,

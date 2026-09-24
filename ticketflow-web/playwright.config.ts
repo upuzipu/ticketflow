@@ -11,15 +11,15 @@ export default defineConfig({
     ? [['github'], ['html', { open: 'never' }]]
     : [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: 'http://localhost:3010',
+    baseURL: 'http://localhost:3005',
     navigationTimeout: 60_000,
     trace: 'retain-on-failure',
   },
   webServer: {
     command: process.env.CI
-      ? 'pnpm build && pnpm exec next start --port 3010'
-      : 'pnpm exec next start --port 3010',
-    url: 'http://localhost:3010',
+      ? 'pnpm build && pnpm exec next start --port 3005'
+      : 'pnpm exec next start --port 3005',
+    url: 'http://localhost:3005',
     reuseExistingServer: !process.env.CI,
     timeout: 300_000,
     env: {

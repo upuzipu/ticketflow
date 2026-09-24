@@ -1,10 +1,11 @@
 openapi: 3.0.3
 info:
   title: TicketFlow API
-  version: 1.1.0
+  version: 1.2.0
   description: >
-    Ticket sales platform: auth (with auto-login on register), events catalog,
-    atomic ticket holds, purchase saga with idempotency, real-time availability.
+    Ticket sales platform: auth (auto-login on register), events catalog,
+    atomic ticket holds, purchase saga with idempotency, real-time
+    availability over WebSocket. All payloads snake_case.
 servers:
   - url: http://localhost:8080
 
@@ -59,31 +60,31 @@ components:
     Money:
       type: object
       properties:
-        Amount:   { type: integer, description: minor units (kopecks) }
-        Currency: { type: string, example: RUB }
+        amount:   { type: integer, description: minor units (kopecks) }
+        currency: { type: string, example: RUB }
     TicketCategory:
       type: object
       properties:
-        ID:       { type: string, format: uuid }
-        EventID:  { type: string, format: uuid }
-        Name:     { type: string }
-        Price:    { $ref: '#/components/schemas/Money' }
-        TotalQty: { type: integer }
+        id:       { type: string, format: uuid }
+        event_id: { type: string, format: uuid }
+        name:     { type: string }
+        price:    { $ref: '#/components/schemas/Money' }
+        total_qty: { type: integer }
     Event:
       type: object
       properties:
-        ID:          { type: string, format: uuid }
-        OrganizerID: { type: string, format: uuid }
-        VenueID:     { type: string }
-        Title:       { type: string }
-        Description: { type: string }
-        StartsAt:    { type: string, format: date-time }
-        Status:      { type: string, enum: [draft, published, cancelled] }
-        Categories:
+        id:           { type: string, format: uuid }
+        organizer_id: { type: string, format: uuid }
+        title:        { type: string }
+        description:  { type: string }
+        image_url:    { type: string, description: empty if not set }
+        starts_at:    { type: string, format: date-time }
+        status:       { type: string, enum: [draft, published, cancelled] }
+        categories:
           type: array
           items: { $ref: '#/components/schemas/TicketCategory' }
-        CreatedAt:   { type: string, format: date-time }
-        UpdatedAt:   { type: string, format: date-time }
+        created_at:   { type: string, format: date-time }
+        updated_at:   { type: string, format: date-time }
     EventList:
       type: object
       properties:
@@ -92,38 +93,40 @@ components:
           items: { $ref: '#/components/schemas/Event' }
         next_cursor:
           type: string
-          description: keyset cursor ("<RFC3339>|<uuid>"); empty = no more pages
-    CategoryAvailability:
+          description: keyset cursor "<RFC3339>|<uuid>"; empty = no more pages
+    AvailabilityCategory:
       type: object
       properties:
-        CategoryID: { type: string, format: uuid }
-        Name:       { type: string }
-        Price:      { $ref: '#/components/schemas/Money' }
-        TotalQty:   { type: integer }
-        Available:  { type: integer }
-        Held:       { type: integer }
-        Sold:       { type: integer }
+        category_id: { type: string, format: uuid }
+        name:        { type: string }
+        price:       { $ref: '#/components/schemas/Money' }
+        total_qty:   { type: integer }
+        available:   { type: integer }
+        held:        { type: integer }
+        sold:        { type: integer }
     Availability:
       type: object
       properties:
-        event_id: { type: string, format: uuid }
+        event_id:    { type: string, format: uuid }
+        server_time: { type: string, format: date-time }
         categories:
           type: array
-          items: { $ref: '#/components/schemas/CategoryAvailability' }
-    HoldCreated:
+          items: { $ref: '#/components/schemas/AvailabilityCategory' }
+    Hold:
       type: object
       properties:
-        hold_id:    { type: string, format: uuid }
-        status:     { type: string, enum: [active] }
-        expires_at: { type: string, format: date-time }
-        tickets:    { type: integer }
-    HoldStatus:
-      type: object
-      properties:
-        hold_id:    { type: string, format: uuid }
-        status:     { type: string, enum: [active, confirmed, released, expired] }
-        expires_at: { type: string, format: date-time }
-        tickets:    { type: integer }
+        hold_id:     { type: string, format: uuid }
+        status:      { type: string, enum: [active, confirmed, released, expired] }
+        expires_at:
+          type: string
+          format: date-time
+          description: original hold deadline (creation time + TTL); not rewritten by the lifecycle
+        tickets:     { type: integer, description: number of captured tickets }
+        server_time: { type: string, format: date-time }
+        order_id:
+          type: string
+          format: uuid
+          description: present when the hold became a paid/confirmed order
     Order:
       type: object
       properties:
@@ -132,8 +135,19 @@ components:
         total_minor: { type: integer }
         currency:    { type: string }
         hold_id:     { type: string, format: uuid }
-        created:     { type: boolean, description: false = idempotent replay of an existing order }
         created_at:  { type: string, format: date-time }
+        created:
+          type: boolean
+          description: present only in POST /orders responses; false = idempotent replay
+    OrderList:
+      type: object
+      properties:
+        orders:
+          type: array
+          items: { $ref: '#/components/schemas/Order' }
+        next_cursor:
+          type: string
+          description: keyset cursor; empty = no more pages
 
 paths:
   /auth/register:
@@ -166,7 +180,7 @@ paths:
     post:
       tags: [auth]
       summary: Login with email and password
-      description: Rate-limited to 5 requests per minute per IP.
+      description: Rate-limited to 5 requests per minute per IP (Retry-After in 429).
       requestBody:
         required: true
         content:
@@ -245,7 +259,10 @@ paths:
     post:
       tags: [events]
       summary: Create an event with priced ticket categories
-      description: Organizer or admin only. Categories validated; tickets generated per category in the same transaction.
+      description: >
+        Organizer or admin only. Categories validated (qty ≥ 1, positive price,
+        currency set, https image_url ≤ 500 chars). Tickets generated for every
+        category in the same transaction.
       security:
         - bearerAuth: []
       requestBody:
@@ -256,8 +273,10 @@ paths:
               type: object
               required: [title, starts_at, categories]
               properties:
-                title:     { type: string }
-                starts_at: { type: string, format: date-time }
+                title:      { type: string }
+                description: { type: string, maxLength: 2000 }
+                starts_at:  { type: string, format: date-time }
+                image_url:  { type: string, maxLength: 500, description: optional, https }
                 categories:
                   type: array
                   minItems: 1
@@ -274,19 +293,16 @@ paths:
           description: Event created (draft), tickets generated
           content:
             application/json:
-              schema:
-                type: object
-                properties:
-                  id:        { type: string, format: uuid }
-                  title:     { type: string }
-                  starts_at: { type: string, format: date-time }
-                  status:    { type: string, enum: [draft] }
+              schema: { $ref: '#/components/schemas/Event' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { description: Caller is not an organizer, $ref: '#/components/responses/Error' }
         '422': { $ref: '#/components/responses/Error' }
     get:
       tags: [events]
       summary: List published events (keyset pagination)
+      description: >
+        With mine=true (organizer only) returns ALL events of the caller
+        including drafts and cancelled.
       parameters:
         - name: limit
           in: query
@@ -295,18 +311,25 @@ paths:
           in: query
           schema: { type: string }
           description: next_cursor from the previous page
+        - name: mine
+          in: query
+          schema: { type: string, enum: ["true"] }
+          description: organizer only; requires Bearer token; returns 403 otherwise
       responses:
         '200':
           description: Page of events
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EventList' }
+        '403': { description: mine=true requested by a non-organizer, $ref: '#/components/responses/Error' }
 
   /events/{id}:
     get:
       tags: [events]
       summary: Event details with ticket categories
-      description: Published events only — drafts return 404 (existence not revealed).
+      description: >
+        Published events are public. Drafts and cancelled are visible only
+        to their owner (or admin); everyone else gets 404.
       parameters:
         - name: id
           in: path
@@ -318,7 +341,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Event' }
-        '404': { description: Not found (or not published), $ref: '#/components/responses/Error' }
+        '404': { description: Not found (or not published and not the owner), $ref: '#/components/responses/Error' }
         '422': { description: Bad uuid, $ref: '#/components/responses/Error' }
 
   /events/{id}/publish:
@@ -344,7 +367,7 @@ paths:
     get:
       tags: [events]
       summary: Per-category ticket counters
-      description: Cached (10s TTL) + invalidated on release/confirm.
+      description: Cached (10s TTL) + invalidated on release/confirm. snake_case.
       parameters:
         - name: id
           in: path
@@ -352,7 +375,7 @@ paths:
           schema: { type: string, format: uuid }
       responses:
         '200':
-          description: Counters
+          description: Counters with server_time
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Availability' }
@@ -365,8 +388,8 @@ paths:
       summary: Reserve tickets (atomic hold, 10 min TTL)
       description: >
         Atomically captures qty available tickets of the category
-        (SELECT … FOR UPDATE SKIP LOCKED). Concurrent reservers get
-        different tickets or 409 sold-out. Rate-limited to 30 req/min per IP.
+        (SELECT … FOR UPDATE SKIP LOCKED). Concurrent reservers get different
+        tickets or 409 sold-out. Rate-limited to 30 req/min per IP (Retry-After).
       security:
         - bearerAuth: []
       parameters:
@@ -390,17 +413,20 @@ paths:
           description: Hold created
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HoldCreated' }
+              schema: { $ref: '#/components/schemas/Hold' }
         '401': { $ref: '#/components/responses/Error' }
         '409': { description: Not enough tickets, $ref: '#/components/responses/Error' }
         '410': { description: Hold expired, $ref: '#/components/responses/Error' }
         '422': { description: Validation failed (qty bounds, bad uuid), $ref: '#/components/responses/Error' }
+        '429': { description: Rate limit exceeded, $ref: '#/components/responses/Error' }
 
   /holds/{id}:
     get:
       tags: [holds]
       summary: Hold status (owner only)
-      description: Lets the client check whether a hold is still active after a page refresh.
+      description: >
+        Lets the client check whether a hold is still active after a page
+        refresh. order_id is filled when the hold became a paid/confirmed order.
       security:
         - bearerAuth: []
       parameters:
@@ -413,7 +439,7 @@ paths:
           description: Hold status
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/HoldStatus' }
+              schema: { $ref: '#/components/schemas/Hold' }
         '401': { $ref: '#/components/responses/Error' }
         '403': { description: Hold belongs to another user, $ref: '#/components/responses/Error' }
         '404': { $ref: '#/components/responses/Error' }
@@ -440,7 +466,8 @@ paths:
       description: >
         Requires idempotency_key (uuid): repeated calls with the same key return
         the same order (200, created=false). On gateway decline — 402 and tickets
-        are released (compensation). On gateway timeout — 424, order stays pending.
+        are released (compensation). On gateway timeout — 424, order stays
+        pending. Rate-limited to 20 req/min per IP.
       security:
         - bearerAuth: []
       requestBody:
@@ -472,6 +499,29 @@ paths:
         '410': { description: Hold expired, $ref: '#/components/responses/Error' }
         '422': { description: Bad idempotency key / hold id, $ref: '#/components/responses/Error' }
         '424': { description: Gateway timeout — order pending review, $ref: '#/components/responses/Error' }
+  /orders/mine:
+    get:
+      tags: [orders]
+      summary: The authenticated user's orders (history)
+      description: >
+        Keyset pagination by created_at DESC (newest first). Cursor format
+        "<RFC3339>|<uuid>", comparison strictly older. limit default 20, max 100.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Page of orders
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderList' }
+        '401': { $ref: '#/components/responses/Error' }
   /orders/{id}/pay:
     post:
       tags: [orders]
@@ -528,6 +578,7 @@ paths:
         "categories":[…]} with snake_case fields.
         Server sends a protocol-level ping every 20 s; automatic browser
         pongs count as liveness. No client heartbeat required.
+        Allowed origins (dev): localhost:3000, localhost:8080.
         Without the Upgrade header the endpoint responds 501.
       parameters:
         - name: id
