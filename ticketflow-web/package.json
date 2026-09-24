@@ -13,7 +13,8 @@
     "prepare": "cd .. && husky ticketflow-web/.husky",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "contract:gen": "openapi-typescript ../api/openapi.yaml -o src/shared/api/schema.gen.d.ts"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -54,6 +55,7 @@
     "jsdom": "^30.1.1",
     "lint-staged": "^17.5.1",
     "msw": "^2.15.0",
+    "openapi-typescript": "^7.13.0",
     "prettier": "^3.9.8",
     "tailwindcss": "^4",
     "typescript": "^5",

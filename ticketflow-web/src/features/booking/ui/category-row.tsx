@@ -42,8 +42,8 @@ export function CategoryRow({ category, eventId, eventTitle }: CategoryRowProps)
         expiresAt: data.expires_at,
         serverTime: data.server_time,
         idempotencyKey: crypto.randomUUID(),
-        unitPriceMinor: category.price_minor,
-        currency: category.currency,
+        unitPriceMinor: category.price.amount,
+        currency: category.price.currency,
       });
       router.push('/checkout');
     },
@@ -66,7 +66,7 @@ export function CategoryRow({ category, eventId, eventTitle }: CategoryRowProps)
       <div className="space-y-1">
         <div className="font-medium">{category.name}</div>
         <div className="flex items-center gap-3">
-          <span>{formatMoney(category.price_minor, category.currency)}</span>
+          <span>{formatMoney(category.price.amount, category.price.currency)}</span>
           <LiveBadge available={category.available} total={category.total_qty} />
         </div>
       </div>

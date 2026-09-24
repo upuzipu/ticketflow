@@ -71,7 +71,9 @@ export default function SandboxEventPage() {
               <li key={c.category_id} className="flex items-center justify-between py-3">
                 <div>
                   <div className="font-medium">{c.name}</div>
-                  <div className="text-sm opacity-70">{formatMoney(c.price_minor, c.currency)}</div>
+                  <div className="text-sm opacity-70">
+                    {formatMoney(c.price.amount, c.price.currency)}
+                  </div>
                 </div>
                 <div className="text-right text-sm">
                   <div>

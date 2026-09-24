@@ -5,17 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
 // Config holds all application settings.
 type Config struct {
-	HTTPAddr string
-	PGDSN    string
-
-	JWTSecret  []byte
-	AccessTTL  time.Duration
-	RefreshTTL time.Duration
+	HTTPAddr         string
+	PGDSN            string
+	WSAllowedOrigins []string
+	JWTSecret        []byte
+	AccessTTL        time.Duration
+	RefreshTTL       time.Duration
 }
 
 // Load reads configuration from the environment and validates it.
@@ -27,7 +28,7 @@ func Load() (*Config, error) {
 		AccessTTL:  15 * time.Minute,
 		RefreshTTL: 7 * 24 * time.Hour,
 	}
-
+	cfg.WSAllowedOrigins = strings.Split(getenv("WS_ALLOWED_ORIGINS", "localhost:3000,localhost:3005,localhost:8080"), ",")
 	if cfg.PGDSN == "" {
 		return nil, errors.New("config: PG_DSN is required")
 	}

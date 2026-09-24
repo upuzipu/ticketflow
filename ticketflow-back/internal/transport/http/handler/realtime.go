@@ -23,13 +23,15 @@ const (
 type RealtimeHandler struct {
 	hub       *realtime.Hub
 	loadStats func(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error)
+	origins   []string
 	log       *slog.Logger
 }
 
 // NewRealtimeHandler wires the handler.
 func NewRealtimeHandler(hub *realtime.Hub,
-	loadStats func(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error)) *RealtimeHandler {
-	return &RealtimeHandler{hub: hub, loadStats: loadStats, log: slog.Default()}
+	loadStats func(ctx context.Context, eventID string) ([]domain.CategoryAvailability, error),
+	origins []string) *RealtimeHandler {
+	return &RealtimeHandler{hub: hub, loadStats: loadStats, origins: origins, log: slog.Default()}
 }
 
 // Subscribe handles GET /ws/events/{id}.
@@ -37,10 +39,11 @@ func (h *RealtimeHandler) Subscribe(w http.ResponseWriter, r *http.Request) {
 	eventID := r.PathValue("id")
 
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
-		OriginPatterns: []string{"localhost:3000", "localhost:8080", "127.0.0.1:3000"},
+		OriginPatterns: h.origins,
 	})
 	if err != nil {
-		h.log.Info("ws handshake rejected", "remote", r.RemoteAddr, "origin", r.Header.Get("Origin"), "err", err)
+		h.log.Info("ws handshake rejected", "remote", r.RemoteAddr,
+			"origin", r.Header.Get("Origin"), "err", err)
 		return
 	}
 	defer conn.Close(websocket.StatusInternalError, "closing")

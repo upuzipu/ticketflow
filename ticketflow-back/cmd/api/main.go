@@ -116,7 +116,7 @@ func run() error {
 	eventHandler := handler.NewEventHandler(eventService)
 	holdHandler := handler.NewHoldHandler(holdService)
 	orderHandler := handler.NewOrderHandler(orderService)
-	realtimeHandler := handler.NewRealtimeHandler(hub, eventsRepo.Availability)
+	realtimeHandler := handler.NewRealtimeHandler(hub, eventsRepo.Availability, cfg.WSAllowedOrigins)
 
 	// --- workers ---
 	expirer := worker.NewHoldExpirer(inventory, holdsRepo, log)

@@ -322,8 +322,7 @@ export function toAvailability(e: MockEvent): Availability {
       .map((c) => ({
         category_id: c.id,
         name: c.name,
-        price_minor: c.priceMinor,
-        currency: c.currency,
+        price: { amount: c.priceMinor, currency: c.currency },
         total_qty: c.totalQty,
         available: availableQty(c),
         held: heldQty(c.id),

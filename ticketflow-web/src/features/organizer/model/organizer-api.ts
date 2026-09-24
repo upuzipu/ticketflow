@@ -7,9 +7,7 @@ export function fetchMyEvents(limit: number, cursor?: string): Promise<EventList
   return api.get(`/events?${params.toString()}`);
 }
 
-export function createEvent(
-  body: CreateEventRequest,
-): Promise<{ id: string; title: string; starts_at: string; status: 'draft' }> {
+export function createEvent(body: CreateEventRequest): Promise<Event> {
   return api.post('/events', body);
 }
 

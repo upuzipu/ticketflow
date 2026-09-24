@@ -9,3 +9,5 @@ JWT_SECRET=change-me-at-least-32-bytes-long-secret!!
 
 # Redis
 REDIS_ADDR=localhost:6379
+
+WS_ALLOWED_ORIGINS=localhost:3000,localhost:3005,localhost:8080

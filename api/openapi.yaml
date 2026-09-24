@@ -578,8 +578,8 @@ paths:
         "categories":[…]} with snake_case fields.
         Server sends a protocol-level ping every 20 s; automatic browser
         pongs count as liveness. No client heartbeat required.
-        Allowed origins (dev): localhost:3000, localhost:8080.
-        Without the Upgrade header the endpoint responds 501.
+        Allowed origins: configured via WS_ALLOWED_ORIGINS (dev default
+        includes localhost:3000/3005/8080; prod will list the real domain).
       parameters:
         - name: id
           in: path

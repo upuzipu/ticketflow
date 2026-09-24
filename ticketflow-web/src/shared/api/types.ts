@@ -53,8 +53,7 @@ export interface EventList {
 export interface CategoryAvailability {
   category_id: string;
   name: string;
-  price_minor: number;
-  currency: string;
+  price: Money;
   total_qty: number;
   available: number;
   held: number;
@@ -63,6 +62,7 @@ export interface CategoryAvailability {
 
 export interface Availability {
   event_id: string;
+  server_time?: string;
   categories: CategoryAvailability[];
 }
 
@@ -96,7 +96,7 @@ export interface Order {
   total_minor: number;
   currency: string;
   hold_id: string;
-  created: boolean;
+  created?: boolean;
   created_at: string;
 }
 
